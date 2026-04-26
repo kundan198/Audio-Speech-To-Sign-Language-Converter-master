@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/3.0/ref/settings/
 """
 
 import os
+import shutil
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -98,6 +99,17 @@ DATABASES = {
         'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
     }
 }
+
+# Vercel Read-Only Filesystem Workaround for SQLite
+if os.environ.get('VERCEL'):
+    # Move database to /tmp which is the only writable directory on Vercel
+    tmp_db = '/tmp/db.sqlite3'
+    # If the database exists in the deployment, copy it to /tmp to preserve data
+    # If it doesn't exist (e.g. ignored by git), Django will create a new one in /tmp
+    src_db = os.path.join(BASE_DIR, 'db.sqlite3')
+    if os.path.exists(src_db) and not os.path.exists(tmp_db):
+        shutil.copyfile(src_db, tmp_db)
+    DATABASES['default']['NAME'] = tmp_db
 
 
 # Password validation
