@@ -202,9 +202,15 @@ function App() {
 
   return (
     <div className="app-container">
+      {/* Mobile Top Header */}
+      <header className="mobile-header">
+        <Brain color="var(--accent-primary)" size={24} />
+        <span style={{ fontWeight: 800, fontSize: '1rem' }}>ANTIGRAVITY</span>
+      </header>
+
       {/* Sidebar */}
       <div className="sidebar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '2rem' }}>
+        <div className="sidebar-logo">
           <Brain color="var(--accent-primary)" size={32} />
           <span style={{ fontWeight: 800, fontSize: '1.2rem' }}>ANTIGRAVITY</span>
         </div>
@@ -233,7 +239,7 @@ function App() {
           <span>Sign to Text</span>
         </div>
 
-        <div style={{ marginTop: 'auto', borderTop: '1px solid var(--glass-border)', paddingTop: '1rem' }}>
+        <div className="sidebar-footer">
           <div className="nav-item">
             <Settings size={20} />
             <span>Settings</span>
@@ -333,9 +339,9 @@ function App() {
             >
               <h1>Speech to Sign Translator</h1>
               
-              <div className="glass-card" style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+              <div className="glass-card flex-mobile-stack" style={{ alignItems: 'center' }}>
                 <ShieldCheck size={24} color="#10b981" />
-                <div style={{ flex: 1 }}>
+                <div style={{ flex: 1, width: '100%' }}>
                   <label style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Gemini API Key (Optional)</label>
                   <input 
                     type="password" 
@@ -356,7 +362,7 @@ function App() {
                   rows={3}
                   style={{ marginTop: '1rem' }}
                 />
-                <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                <div className="flex-mobile-stack" style={{ marginTop: '1rem' }}>
                   <button 
                     className="btn btn-primary" 
                     onClick={() => handleSimplify()}

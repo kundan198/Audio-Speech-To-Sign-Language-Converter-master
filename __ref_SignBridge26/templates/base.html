@@ -1,0 +1,457 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{% block title %}SignBridge — Real-time ASL translation{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-0:        #050507;
+  --bg-1:        #0a0a10;
+  --bg-2:        #0f0f17;
+  --surface:     rgba(255, 255, 255, 0.04);
+  --surface-2:   rgba(255, 255, 255, 0.06);
+  --surface-3:   rgba(255, 255, 255, 0.10);
+  --border:      rgba(255, 255, 255, 0.08);
+  --border-2:    rgba(255, 255, 255, 0.14);
+  --text:        #f5f5f7;
+  --text-dim:    #a1a1aa;
+  --text-muted:  #6e6e76;
+  --accent:      #7c5cff;     /* purple */
+  --accent-2:    #00d4ff;     /* cyan */
+  --accent-3:    #ff3b9a;     /* magenta */
+  --success:     #30d158;
+  --warning:     #ffd60a;
+  --danger:      #ff453a;
+  --radius-sm:   8px;
+  --radius:      14px;
+  --radius-lg:   22px;
+  --radius-xl:   32px;
+  --ease:        cubic-bezier(0.22, 1, 0.36, 1);
+  --shadow-sm:   0 1px 2px rgba(0,0,0,0.4), 0 0 0 1px var(--border);
+  --shadow:      0 10px 30px rgba(0,0,0,0.5), 0 0 0 1px var(--border);
+  --shadow-lg:   0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px var(--border);
+  --glow:        0 0 60px rgba(124, 92, 255, 0.35);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg-0); color: var(--text); }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  overflow-x: hidden;
+  letter-spacing: -0.011em;
+  line-height: 1.5;
+  position: relative;
+}
+
+/* ============ Animated mesh gradient background ============ */
+.bg-mesh {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+  background: var(--bg-0);
+}
+.bg-mesh::before, .bg-mesh::after {
+  content: "";
+  position: absolute;
+  width: 80vmax;
+  height: 80vmax;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.45;
+  will-change: transform;
+}
+.bg-mesh::before {
+  background: radial-gradient(circle, var(--accent) 0%, transparent 60%);
+  top: -30vmax; left: -20vmax;
+  animation: float-a 24s var(--ease) infinite alternate;
+}
+.bg-mesh::after {
+  background: radial-gradient(circle, var(--accent-2) 0%, transparent 60%);
+  bottom: -30vmax; right: -20vmax;
+  animation: float-b 28s var(--ease) infinite alternate;
+}
+.bg-mesh > .blob {
+  position: absolute;
+  width: 60vmax;
+  height: 60vmax;
+  border-radius: 50%;
+  filter: blur(140px);
+  opacity: 0.3;
+  background: radial-gradient(circle, var(--accent-3) 0%, transparent 60%);
+  top: 30vmax; left: 40vmax;
+  animation: float-c 32s var(--ease) infinite alternate;
+}
+@keyframes float-a {
+  0%   { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(20vmax, 10vmax) scale(1.2); }
+}
+@keyframes float-b {
+  0%   { transform: translate(0, 0) scale(1.1); }
+  100% { transform: translate(-15vmax, -10vmax) scale(0.9); }
+}
+@keyframes float-c {
+  0%   { transform: translate(0, 0) scale(0.9); }
+  100% { transform: translate(-25vmax, 5vmax) scale(1.3); }
+}
+.bg-grain {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* ============ Navigation (frosted glass) ============ */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: saturate(180%) blur(24px);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  background: rgba(10, 10, 16, 0.6);
+  border-bottom: 1px solid var(--border);
+}
+.nav-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 14px 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  text-decoration: none; color: var(--text);
+  font-weight: 700; font-size: 17px; letter-spacing: -0.02em;
+  margin-right: 24px;
+}
+.brand .logo {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2), var(--accent-3));
+  position: relative;
+  box-shadow: 0 0 20px rgba(124, 92, 255, 0.5);
+}
+.brand .logo::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 5px;
+  background: var(--bg-0);
+}
+.brand .logo::before {
+  content: "";
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 12px; height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  z-index: 1;
+}
+.nav-links {
+  display: flex; gap: 4px; list-style: none; flex: 1;
+}
+.nav-links a {
+  display: inline-block;
+  padding: 8px 14px;
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 8px;
+  transition: all 0.2s var(--ease);
+}
+.nav-links a:hover { color: var(--text); background: var(--surface); }
+.nav-links a.active { color: var(--text); background: var(--surface-2); }
+.nav-actions { display: flex; gap: 8px; align-items: center; }
+
+/* ============ Buttons ============ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s var(--ease);
+  white-space: nowrap;
+  user-select: none;
+}
+.btn-primary {
+  background: var(--text);
+  color: var(--bg-0);
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 30px rgba(255,255,255,0.15); }
+.btn-accent {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: white;
+  box-shadow: 0 8px 24px rgba(124, 92, 255, 0.4);
+}
+.btn-accent:hover { transform: translateY(-1px); box-shadow: 0 14px 40px rgba(124, 92, 255, 0.6); }
+.btn-ghost {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+  backdrop-filter: blur(20px);
+}
+.btn-ghost:hover { background: var(--surface-2); border-color: var(--border-2); }
+.btn-danger {
+  background: var(--surface);
+  color: var(--danger);
+  border-color: rgba(255, 69, 58, 0.3);
+}
+.btn-danger:hover { background: rgba(255, 69, 58, 0.1); }
+.btn-lg { padding: 14px 26px; font-size: 16px; }
+.btn-sm { padding: 7px 14px; font-size: 13px; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+
+/* ============ Cards (glassmorphic) ============ */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  position: relative;
+  transition: all 0.3s var(--ease);
+}
+.card-hover:hover {
+  background: var(--surface-2);
+  border-color: var(--border-2);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+.card-glow::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2), var(--accent-3));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* ============ Layout ============ */
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 28px;
+}
+.container-sm { max-width: 720px; }
+.section { padding: 80px 0; }
+
+/* ============ Typography ============ */
+.eyebrow {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.h-display {
+  font-size: clamp(40px, 8vw, 88px);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+.h1 { font-size: clamp(32px, 5vw, 56px); font-weight: 700; letter-spacing: -0.03em; line-height: 1.05; }
+.h2 { font-size: clamp(24px, 3vw, 36px); font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; }
+.h3 { font-size: 20px; font-weight: 600; letter-spacing: -0.015em; }
+.lead { font-size: 18px; color: var(--text-dim); line-height: 1.55; }
+.muted { color: var(--text-muted); }
+.dim { color: var(--text-dim); }
+.gradient-text {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 50%, var(--accent-3) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+/* ============ Pills / chips ============ */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+.pill-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.pill.success { color: var(--success); border-color: rgba(48,209,88,0.3); background: rgba(48,209,88,0.08); }
+.pill.success .pill-dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
+.pill.warning { color: var(--warning); border-color: rgba(255,214,10,0.3); background: rgba(255,214,10,0.08); }
+.pill.warning .pill-dot { background: var(--warning); }
+.pill.danger { color: var(--danger); border-color: rgba(255,69,58,0.3); background: rgba(255,69,58,0.08); }
+.pill.danger .pill-dot { background: var(--danger); }
+.pill.accent { color: var(--accent-2); border-color: rgba(0,212,255,0.3); background: rgba(0,212,255,0.08); }
+.pill.accent .pill-dot { background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); }
+
+/* ============ Form elements (Django forms output) ============ */
+.field-block { margin-bottom: 16px; }
+.field-block label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+input[type="text"], input[type="password"], input[type="email"], input[type="search"],
+textarea, select {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 15px;
+  outline: none;
+  transition: all 0.2s var(--ease);
+  backdrop-filter: blur(10px);
+}
+input[type="text"]:focus, input[type="password"]:focus, input[type="email"]:focus,
+textarea:focus, select:focus {
+  border-color: var(--accent);
+  background: var(--surface-2);
+  box-shadow: 0 0 0 4px rgba(124, 92, 255, 0.15);
+}
+input[type="text"]::placeholder, textarea::placeholder { color: var(--text-muted); }
+
+/* Django form list/tables */
+form ul, form ol { list-style: none; padding: 0; }
+.helptext { display: block; font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+.errorlist { color: var(--danger); list-style: none; padding: 0; font-size: 13px; margin-top: 4px; }
+form p { margin-bottom: 14px; }
+form p label { display: block; font-size: 13px; color: var(--text-dim); margin-bottom: 6px; font-weight: 500; }
+
+/* ============ Glow utility ============ */
+.glow { box-shadow: var(--glow); }
+
+/* ============ Animations ============ */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fade-up 0.7s var(--ease) both; }
+.fade-up.d1 { animation-delay: 0.08s; }
+.fade-up.d2 { animation-delay: 0.16s; }
+.fade-up.d3 { animation-delay: 0.24s; }
+.fade-up.d4 { animation-delay: 0.32s; }
+
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(124, 92, 255, 0.6); }
+  100% { box-shadow: 0 0 0 24px rgba(124, 92, 255, 0); }
+}
+.pulse { animation: pulse-ring 1.6s var(--ease) infinite; }
+
+/* ============ Footer ============ */
+.footer {
+  padding: 40px 28px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  border-top: 1px solid var(--border);
+  margin-top: 80px;
+}
+.footer a { color: var(--text-dim); text-decoration: none; margin: 0 10px; }
+.footer a:hover { color: var(--text); }
+
+/* ============ Responsive helpers ============ */
+@media (max-width: 768px) {
+  .nav-inner { padding: 12px 16px; }
+  .brand span { display: none; }
+  .nav-links a { padding: 6px 10px; font-size: 13px; }
+  .container { padding: 0 16px; }
+  .section { padding: 48px 0; }
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: var(--surface-3); }
+
+{% block extra_css %}{% endblock %}
+</style>
+</head>
+<body>
+
+<div class="bg-mesh"><div class="blob"></div></div>
+<div class="bg-grain"></div>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="{% url 'home' %}" class="brand">
+      <span class="logo"></span>
+      <span>SignBridge</span>
+    </a>
+    <ul class="nav-links">
+      <li><a href="{% url 'animation' %}">Speech &rarr; Sign</a></li>
+      <li><a href="{% url 'sign_to_text' %}">Sign &rarr; Speech</a></li>
+      <li><a href="{% url 'conversation' %}">Live Conversation</a></li>
+      <li><a href="{% url 'about' %}">About</a></li>
+      <li><a href="{% url 'contact' %}">Contact</a></li>
+    </ul>
+    <div class="nav-actions">
+      {% if user.is_authenticated %}
+        <span class="pill"><span class="pill-dot" style="background:var(--success)"></span>{{ user.username }}</span>
+        <a href="{% url 'logout' %}" class="btn btn-ghost btn-sm">Sign out</a>
+      {% else %}
+        <a href="{% url 'login' %}" class="btn btn-ghost btn-sm">Log in</a>
+        <a href="{% url 'signup' %}" class="btn btn-primary btn-sm">Get started</a>
+      {% endif %}
+    </div>
+  </div>
+</nav>
+
+<main>
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+  <div>SignBridge &middot; Built for accessibility &middot; Powered by Gemini Vision + ElevenLabs + MediaPipe</div>
+  <div style="margin-top:8px">
+    <a href="{% url 'about' %}">About</a> &middot;
+    <a href="{% url 'contact' %}">Contact</a>
+  </div>
+</footer>
+
+{% block extra_js %}{% endblock %}
+</body>
+</html>

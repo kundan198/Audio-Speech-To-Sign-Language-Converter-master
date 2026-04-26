@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block title %}About · SignBridge{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container container-sm">
+
+    <div class="fade-up" style="margin-bottom: 48px;">
+      <div class="eyebrow" style="margin-bottom: 12px;">About SignBridge</div>
+      <h1 class="h1">Conversation is a human right.</h1>
+      <p class="lead" style="margin-top: 16px;">
+        Around the world, 70 million people use a sign language as their first
+        language. Yet most of the digital tools they touch every day &mdash;
+        meetings, hospitals, classrooms, customer support &mdash; assume
+        everyone speaks. SignBridge exists to close that gap.
+      </p>
+    </div>
+
+    <div class="card fade-up d1" style="margin-bottom: 24px;">
+      <h2 class="h3" style="margin-bottom: 12px;">What it does</h2>
+      <p class="dim">
+        SignBridge translates in both directions in real time. Speech becomes
+        sign language animations on screen. Hand gestures captured by a webcam
+        become spoken English audio. The two halves run side by side in
+        Live Conversation mode so a Deaf person and a hearing person can
+        actually talk &mdash; not pass notes, not wait for an interpreter.
+      </p>
+    </div>
+
+    <div class="card fade-up d2" style="margin-bottom: 24px;">
+      <h2 class="h3" style="margin-bottom: 12px;">How it works</h2>
+      <p class="dim">
+        For speech &rarr; sign, we tokenize and normalize tense with NLTK,
+        then play sequenced sign animations from our video library. For
+        sign &rarr; speech, MediaPipe Hands runs locally in the browser to
+        track 21 joints per hand at 30+ fps; the live frames and landmarks
+        are sent to Google Gemini 1.5 Flash Vision, which returns the
+        English meaning of the gesture. The browser's SpeechSynthesis API
+        speaks the result aloud. ElevenLabs voice integration is optional
+        for richer, more expressive playback.
+      </p>
+    </div>
+
+    <div class="card fade-up d3" style="margin-bottom: 24px;">
+      <h2 class="h3" style="margin-bottom: 12px;">Why Healthcare Mode</h2>
+      <p class="dim">
+        Deaf patients face up to three times the rate of preventable medical
+        errors, largely because they can't fully understand what their doctor
+        is saying. In Healthcare Mode, every sentence the doctor says is run
+        through Gemini first to strip out medical jargon and rewrite it in
+        plain language &mdash; <em>then</em> it gets signed. The patient also
+        leaves with a written transcript.
+      </p>
+    </div>
+
+    <div class="card fade-up d4">
+      <h2 class="h3" style="margin-bottom: 12px;">The team</h2>
+      <p class="dim" style="margin-bottom: 16px;">SignBridge Team:</p>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <span class="pill"><span class="pill-dot"></span>Rishil Shah</span>
+        <span class="pill"><span class="pill-dot"></span>Uday Kocherla</span>
+        <span class="pill"><span class="pill-dot"></span>Kundan Srinivas</span>
+        <span class="pill"><span class="pill-dot"></span>Hemangi Patil</span>
+      </div>
+    </div>
+
+  </div>
+</section>
+{% endblock %}

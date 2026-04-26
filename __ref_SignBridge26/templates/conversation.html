@@ -1,0 +1,742 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Live Conversation · SignBridge{% endblock %}
+
+{% block content %}
+<section class="section" style="padding-top: 32px;">
+  <div class="container" style="max-width: 1400px;">
+
+    <div style="text-align: center; margin-bottom: 24px;" class="fade-up">
+      <div class="pill" style="margin-bottom: 12px;">
+        <span class="pill-dot" style="background: var(--accent-3);"></span>
+        Mode 3 · Flagship
+      </div>
+      <h1 class="h1">Live Conversation</h1>
+      <p class="lead" style="max-width: 640px; margin: 8px auto 0;">
+        Both directions, one screen. A hearing person stands on the left,
+        a Deaf person stands on the right. Talk normally.
+      </p>
+    </div>
+
+    <!-- Mode + voice toggle -->
+    <div style="display:flex; justify-content:center; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; align-items: center;" class="fade-up d1">
+      <button class="btn btn-ghost mode-btn active" data-mode="standard">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>
+        Standard
+      </button>
+      <button class="btn btn-ghost mode-btn" data-mode="healthcare">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+        Healthcare
+      </button>
+      <button class="btn btn-ghost mode-btn" data-mode="education">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M22 10L12 5 2 10l10 5 10-5z M6 12v5c3 3 9 3 12 0v-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Education
+      </button>
+      <span style="width:1px; height: 22px; background: var(--border);"></span>
+      <select id="convVoiceSel" style="width: auto; min-width: 220px;">
+        <option value="">Loading ElevenLabs voices…</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" id="convTestVoiceBtn" title="Test the selected voice">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M11 5L6 9H2v6h4l5 4V5zM19 12c0-1.77-1-3.29-2.5-4.03M22 12c0-3.07-1.84-5.7-4.5-6.83" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Test voice
+      </button>
+      <span class="pill" id="convSpeakingIndicator" style="display:none;">
+        <span class="pill-dot" style="background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); animation: pulse-dot 1s infinite alternate;"></span>
+        Speaking
+      </span>
+    </div>
+    <style>@keyframes pulse-dot { from { opacity: 0.4; } to { opacity: 1; } }</style>
+
+    <div id="modeBanner" class="fade-up d1" style="display:none; margin-bottom: 20px;">
+      <div class="card" style="padding: 14px 18px; display: flex; align-items: center; gap: 12px;">
+        <span class="pill accent"><span class="pill-dot"></span><span id="modeBannerLabel"></span></span>
+        <span class="dim" style="font-size: 13px;" id="modeBannerText"></span>
+      </div>
+    </div>
+
+    <!-- Two-panel conversation -->
+    <div class="conv-grid fade-up d2">
+
+      <!-- LEFT: hearing user (speech in, sign animation out) -->
+      <div class="card" style="display:flex; flex-direction:column;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
+          <div style="width:36px; height:36px; border-radius: 12px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); display:flex; align-items:center; justify-content:center;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z M19 10v2a7 7 0 0 1-14 0v-2 M12 19v4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div>
+            <div style="font-weight:600; font-size:15px;">Hearing speaker</div>
+            <div class="dim" style="font-size: 12px;">Speech &rarr; Sign animation</div>
+          </div>
+          <span class="pill" id="speakStatus" style="margin-left:auto;"><span class="pill-dot"></span>Idle</span>
+        </div>
+
+        <!-- Sign animation video -->
+        <div style="position: relative; aspect-ratio: 16/10; background: var(--bg-1); border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); margin-bottom: 16px;">
+          <video id="convVideoPlayer" preload="auto" muted style="width:100%; height:100%; object-fit:contain; background: var(--bg-0);"></video>
+          <div id="convVideoIdle" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; gap: 12px; color: var(--text-muted);">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none"><path d="M12 2v20M5 9c0-2 1.5-3 3.5-3S12 7 12 9s-1.5 3-3.5 3M19 15c0 2-1.5 3-3.5 3S12 17 12 15s1.5-3 3.5-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <div style="font-size:13px;">Speak to begin signing</div>
+          </div>
+        </div>
+
+        <!-- Speech input -->
+        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+          <input type="text" id="convSpeechInput" placeholder="Speak or type a message…" style="flex:1;">
+          <button class="btn btn-ghost" id="convMicBtn" title="Hold to talk (or click to start mic)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="9" y="2" width="6" height="12" rx="3" stroke="currentColor" stroke-width="2"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+          <button class="btn btn-accent" id="convSendBtn">Sign it</button>
+        </div>
+
+        <!-- Word chips -->
+        <div id="convWordList" class="conv-chips" style="min-height: 36px;"></div>
+      </div>
+
+      <!-- RIGHT: deaf signer (sign in, speech out) -->
+      <div class="card" style="display:flex; flex-direction:column;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
+          <div style="width:36px; height:36px; border-radius: 12px; background: linear-gradient(135deg, var(--accent-2), var(--accent-3)); display:flex; align-items:center; justify-content:center;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 12l2 2 4-4 M21 12c0 5-4 9-9 9s-9-4-9-9 4-9 9-9c2 0 4 1 5 2" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div>
+            <div style="font-weight:600; font-size:15px;">Deaf signer</div>
+            <div class="dim" style="font-size: 12px;">Sign &rarr; Spoken voice</div>
+          </div>
+          <span class="pill" id="convHandPill" style="margin-left:auto;"><span class="pill-dot"></span>No hands</span>
+        </div>
+
+        <div class="conv-video-wrap" style="margin-bottom: 16px;">
+          <video id="convCamVideo" autoplay playsinline muted></video>
+          <canvas id="convCamCanvas"></canvas>
+          <div class="conv-rec-ring" id="convRecRing"></div>
+          <div class="conv-cam-cta" id="convCamCta">
+            <div style="text-align:center;">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" style="margin-bottom:10px;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="13" r="4" stroke="currentColor" stroke-width="1.5"/></svg>
+              <div style="font-size:14px; margin-bottom:14px;">Camera off</div>
+              <button class="btn btn-accent" id="convStartCamBtn">Start camera</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex; gap: 8px; margin-bottom: 12px;">
+          <button class="btn btn-accent" id="convCaptureBtn" style="flex:1;" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="currentColor"/></svg>
+            Capture sign &rarr; speak
+          </button>
+          <button class="btn btn-ghost" id="convAutoBtn" disabled title="Auto-capture on hand stillness">
+            Auto
+          </button>
+        </div>
+
+        <div class="dim" style="font-size: 12px; text-align: center;" id="convCamStatus">
+          Click Start to enable camera.
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Conversation log -->
+    <div class="card fade-up d3" style="margin-top: 24px;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
+        <span class="pill"><span class="pill-dot"></span>Conversation log</span>
+        <span class="dim" style="font-size: 13px;" id="convLogCount">0 messages</span>
+        <div style="margin-left:auto; display:flex; gap:8px;">
+          <button class="btn btn-ghost btn-sm" id="convExportBtn">Export</button>
+          <button class="btn btn-danger btn-sm" id="convClearLogBtn">Clear</button>
+        </div>
+      </div>
+      <div id="convLog" class="conv-log">
+        <div class="dim" style="font-size: 13px; text-align: center; padding: 24px;">No messages yet — start a conversation above.</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.conv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+/* Always side-by-side — no responsive collapse. Shrink padding on small screens instead. */
+@media (max-width: 1100px) {
+  .conv-grid { gap: 10px; }
+  .conv-grid .card { padding: 14px; }
+}
+@media (max-width: 800px) {
+  .conv-grid .card { padding: 10px; }
+}
+
+.conv-video-wrap {
+  position: relative;
+  aspect-ratio: 16/10;
+  background: var(--bg-1);
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.conv-video-wrap video, .conv-video-wrap canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+.conv-rec-ring {
+  position: absolute; inset: 0;
+  border-radius: var(--radius);
+  pointer-events: none;
+  box-shadow: inset 0 0 0 0 var(--danger);
+  transition: box-shadow 0.3s var(--ease);
+}
+.conv-rec-ring.on {
+  box-shadow: inset 0 0 0 4px var(--danger), 0 0 30px rgba(255,69,58,0.4);
+}
+.conv-cam-cta {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(5,5,7,0.85); backdrop-filter: blur(8px);
+  z-index: 5;
+}
+.conv-cam-cta.hidden { display: none; }
+
+.conv-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.conv-chip {
+  padding: 5px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-dim);
+  transition: all 0.3s var(--ease);
+}
+.conv-chip.active {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: white; border-color: transparent;
+  transform: scale(1.1);
+}
+
+.conv-log {
+  display: flex; flex-direction: column; gap: 10px;
+  max-height: 360px; overflow-y: auto;
+  padding-right: 8px;
+}
+.conv-msg {
+  display: flex; gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  align-items: flex-start;
+}
+.conv-msg.from-hearing {
+  border-left: 3px solid var(--accent);
+}
+.conv-msg.from-deaf {
+  border-left: 3px solid var(--accent-2);
+  background: rgba(0, 212, 255, 0.04);
+}
+.conv-msg .who {
+  font-size: 12px; font-weight: 600;
+  color: var(--text-dim);
+  flex-shrink: 0; min-width: 80px;
+}
+.conv-msg .body {
+  flex: 1; font-size: 15px; color: var(--text);
+  word-break: break-word;
+}
+.conv-msg .ts {
+  font-size: 11px; color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+  flex-shrink: 0;
+}
+.conv-msg .body .simplified {
+  display: block;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-style: italic;
+}
+
+.mode-btn.active {
+  background: var(--surface-3) !important;
+  border-color: var(--border-2) !important;
+  color: var(--text) !important;
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+<script>
+(function(){
+  const CSRF = (document.cookie.match('(^|;)\\s*csrftoken\\s*=\\s*([^;]+)') || [])[2] || '';
+
+  // ---- ElevenLabs voice loader + speaker ----
+  const voiceSel = document.getElementById('convVoiceSel');
+  const testVoiceBtn = document.getElementById('convTestVoiceBtn');
+  const speakingIndicator = document.getElementById('convSpeakingIndicator');
+  let elevenVoices = [];
+  let audioUnlocked = false;
+
+  // Browser autoplay policies require a user gesture before audio plays.
+  // Unlock on first click anywhere.
+  function unlockAudio() {
+    if (audioUnlocked) return;
+    audioUnlocked = true;
+    // Prime SpeechSynthesis with a silent utterance so it's allowed later.
+    if ('speechSynthesis' in window) {
+      const u = new SpeechSynthesisUtterance('');
+      u.volume = 0;
+      try { window.speechSynthesis.speak(u); } catch(_) {}
+    }
+    console.log('[SignBridge] audio unlocked');
+  }
+  document.addEventListener('click', unlockAudio, { once: false });
+
+  function showSpeaking(on) {
+    speakingIndicator.style.display = on ? '' : 'none';
+  }
+
+  async function loadElevenVoices() {
+    voiceSel.innerHTML = '<option value="">Loading…</option>';
+    try {
+      const r = await fetch("{% url 'elevenlabs_voices' %}");
+      const data = await r.json();
+      console.log('[SignBridge] voices response:', data);
+      if (!data.ok) throw new Error(data.error || 'failed');
+      elevenVoices = data.voices || [];
+      voiceSel.innerHTML = '';
+      if (!elevenVoices.length) {
+        voiceSel.innerHTML = '<option value="">No ElevenLabs voices on account — using browser TTS</option>';
+        return;
+      }
+      elevenVoices.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.voice_id;
+        const tag = v.category ? ` · ${v.category}` : '';
+        opt.textContent = `🎙 ${v.name}${tag}`;
+        voiceSel.appendChild(opt);
+      });
+      // Auto-select first voice so something is always selected.
+      if (voiceSel.value === '') voiceSel.selectedIndex = 0;
+      console.log('[SignBridge] voice selected:', voiceSel.value);
+    } catch (e) {
+      console.error('[SignBridge] voice load failed:', e);
+      voiceSel.innerHTML = `<option value="">ElevenLabs unavailable (${e.message}) — using browser TTS</option>`;
+    }
+  }
+  loadElevenVoices();
+
+  async function playElevenLabs(text) {
+    const voiceId = voiceSel.value;
+    if (!voiceId) return false;
+    console.log('[SignBridge] requesting ElevenLabs TTS:', text, 'voice:', voiceId);
+    const r = await fetch("{% url 'elevenlabs_tts' %}", {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      body: JSON.stringify({ text, voice_id: voiceId })
+    });
+    console.log('[SignBridge] TTS response status:', r.status, 'content-type:', r.headers.get('content-type'));
+    if (!r.ok) {
+      let msg = 'HTTP ' + r.status;
+      try {
+        const j = await r.json();
+        msg = j.error || msg;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+    const ct = r.headers.get('content-type') || '';
+    if (!ct.startsWith('audio/')) {
+      const txt = await r.text();
+      throw new Error('Got non-audio response: ' + txt.slice(0, 200));
+    }
+    const blob = await r.blob();
+    console.log('[SignBridge] got audio blob:', blob.size, 'bytes');
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.onended = () => { URL.revokeObjectURL(url); showSpeaking(false); };
+    audio.onerror = () => { URL.revokeObjectURL(url); showSpeaking(false); };
+    showSpeaking(true);
+    try {
+      await audio.play();
+      return true;
+    } catch (err) {
+      // Autoplay blocked — show user-actionable message
+      showSpeaking(false);
+      console.error('[SignBridge] audio.play() rejected:', err);
+      camStatus.textContent = '⚠ Audio blocked by browser. Click anywhere on the page once, then try again.';
+      throw err;
+    }
+  }
+
+  function playBrowserTTS(text) {
+    if (!('speechSynthesis' in window)) return false;
+    console.log('[SignBridge] using browser TTS:', text);
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.0;
+    u.onend = () => showSpeaking(false);
+    u.onerror = () => showSpeaking(false);
+    showSpeaking(true);
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+    return true;
+  }
+
+  async function speakWithEleven(text) {
+    if (!text) return;
+    unlockAudio();
+    try {
+      const ok = await playElevenLabs(text);
+      if (ok) return;
+    } catch (e) {
+      console.warn('[SignBridge] ElevenLabs failed, falling back to browser TTS:', e.message);
+      camStatus.textContent = 'ElevenLabs failed: ' + e.message + ' — using browser voice.';
+    }
+    playBrowserTTS(text);
+  }
+
+  // Test Voice button so user can verify audio works without signing
+  testVoiceBtn.addEventListener('click', async () => {
+    unlockAudio();
+    await speakWithEleven('Hello, this is SignBridge. If you can hear this, voice output is working.');
+  });
+
+  // ---- Mode banner ----
+  const MODES = {
+    standard:   { label: 'Standard', text: 'Casual two-way conversation.' },
+    healthcare: { label: 'Healthcare', text: 'Doctor-speech is simplified to plain language by Gemini before signing.' },
+    education:  { label: 'Education', text: 'Educational vocabulary; longer sentences are broken into chunks.' }
+  };
+  let currentMode = 'standard';
+  const banner = document.getElementById('modeBanner');
+  const bannerLabel = document.getElementById('modeBannerLabel');
+  const bannerText = document.getElementById('modeBannerText');
+  document.querySelectorAll('.mode-btn').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.mode-btn').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      currentMode = b.dataset.mode;
+      if (currentMode === 'standard') {
+        banner.style.display = 'none';
+      } else {
+        banner.style.display = '';
+        bannerLabel.textContent = MODES[currentMode].label + ' Mode';
+        bannerText.textContent = MODES[currentMode].text;
+      }
+    });
+  });
+
+  // ---- Conversation log ----
+  let log = [];
+  const logEl = document.getElementById('convLog');
+  const logCountEl = document.getElementById('convLogCount');
+
+  function addLog(who, body, simplified) {
+    const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    log.push({ who, body, simplified, ts });
+    renderLog();
+  }
+  function renderLog() {
+    logCountEl.textContent = log.length + ' message' + (log.length === 1 ? '' : 's');
+    if (!log.length) {
+      logEl.innerHTML = '<div class="dim" style="font-size: 13px; text-align: center; padding: 24px;">No messages yet — start a conversation above.</div>';
+      return;
+    }
+    logEl.innerHTML = log.map(m => {
+      const who = m.who === 'hearing' ? 'Hearing' : 'Deaf';
+      const cls = m.who === 'hearing' ? 'from-hearing' : 'from-deaf';
+      const simpl = m.simplified ? `<span class="simplified">↳ Signed as: "${escapeHtml(m.simplified)}"</span>` : '';
+      return `<div class="conv-msg ${cls}"><div class="who">${who}</div><div class="body">${escapeHtml(m.body)}${simpl}</div><div class="ts">${m.ts}</div></div>`;
+    }).join('');
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+  }
+  document.getElementById('convClearLogBtn').addEventListener('click', () => { log = []; renderLog(); });
+  document.getElementById('convExportBtn').addEventListener('click', () => {
+    if (!log.length) return;
+    const txt = log.map(m => `[${m.ts}] ${m.who.toUpperCase()}: ${m.body}${m.simplified ? '\n  (signed as: ' + m.simplified + ')' : ''}`).join('\n');
+    const blob = new Blob([txt], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'signbridge-conversation.txt';
+    a.click(); URL.revokeObjectURL(url);
+  });
+
+  // ============== LEFT SIDE: speech -> sign animation ==============
+  const speechInput = document.getElementById('convSpeechInput');
+  const sendBtn = document.getElementById('convSendBtn');
+  const micBtn = document.getElementById('convMicBtn');
+  const speakStatus = document.getElementById('speakStatus');
+  const wordListEl = document.getElementById('convWordList');
+  const videoPlayer = document.getElementById('convVideoPlayer');
+  const videoIdle = document.getElementById('convVideoIdle');
+
+  function setSpeakStatus(text, kind) {
+    speakStatus.innerHTML = '<span class="pill-dot"></span>' + text;
+    speakStatus.className = 'pill' + (kind ? ' ' + kind : '');
+  }
+
+  // Local NLP-lite to mirror server logic just enough for client-side preview.
+  // For the real translation we POST to /animation/ — but to keep this snappy
+  // and side-by-side, we use a lightweight client-only word splitter and
+  // request sign videos directly from /static/.
+  function tokenize(sentence) {
+    // crude tokenization: remove punctuation, split on whitespace
+    return sentence.replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
+  }
+
+  // For each word, try a video at /static/<Capitalized>.mp4. If it 404s during
+  // playback, fall back to spelling letter by letter.
+  function videoUrlForToken(t) {
+    const cap = t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+    return `/static/${encodeURIComponent(cap)}.mp4`;
+  }
+
+  function renderChips(tokens) {
+    wordListEl.innerHTML = tokens.map(t => `<span class="conv-chip" data-word="${escapeHtml(t)}">${escapeHtml(t)}</span>`).join('');
+  }
+
+  async function simplifyIfNeeded(text) {
+    // Healthcare mode: ask Gemini to simplify medical jargon into plain language.
+    if (currentMode !== 'healthcare') return text;
+    try {
+      setSpeakStatus('Simplifying with Gemini…', 'accent');
+      const res = await fetch("{% url 'simplify_text' %}", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify({ text, mode: currentMode })
+      });
+      const data = await res.json();
+      if (data.ok && data.text) return data.text;
+    } catch (_) {}
+    return text;
+  }
+
+  async function playSequence(originalText) {
+    const finalText = await simplifyIfNeeded(originalText);
+    const tokens = tokenize(finalText);
+    if (!tokens.length) return;
+
+    renderChips(tokens);
+    videoIdle.style.display = 'none';
+    addLog('hearing', originalText, finalText !== originalText ? finalText : null);
+
+    let i = 0;
+    const chips = wordListEl.querySelectorAll('.conv-chip');
+
+    function playOne(idx) {
+      if (idx >= tokens.length) {
+        setSpeakStatus('Done', 'success');
+        chips.forEach(c => c.classList.remove('active'));
+        return;
+      }
+      chips.forEach(c => c.classList.remove('active'));
+      chips[idx].classList.add('active');
+      setSpeakStatus(`Signing "${tokens[idx]}"`, 'accent');
+
+      videoPlayer.src = videoUrlForToken(tokens[idx]);
+      videoPlayer.load();
+      const tryPlay = videoPlayer.play();
+      if (tryPlay && tryPlay.catch) tryPlay.catch(() => {});
+      videoPlayer.onended = () => playOne(idx + 1);
+      videoPlayer.onerror = () => {
+        // fallback: spell letter by letter
+        const letters = tokens[idx].toUpperCase().split('');
+        let li = 0;
+        const playLetter = () => {
+          if (li >= letters.length) { playOne(idx + 1); return; }
+          videoPlayer.src = videoUrlForToken(letters[li]);
+          videoPlayer.load();
+          videoPlayer.play().catch(()=>{});
+          videoPlayer.onended = () => { li++; playLetter(); };
+          videoPlayer.onerror = () => { li++; playLetter(); };
+        };
+        playLetter();
+      };
+    }
+    playOne(0);
+  }
+
+  sendBtn.addEventListener('click', () => {
+    const text = speechInput.value.trim();
+    if (!text) return;
+    speechInput.value = '';
+    playSequence(text);
+  });
+  speechInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') sendBtn.click();
+  });
+
+  let recog = null;
+  micBtn.addEventListener('click', () => {
+    if (!('webkitSpeechRecognition' in window)) { setSpeakStatus('Mic unsupported', 'danger'); return; }
+    recog = new webkitSpeechRecognition();
+    recog.lang = 'en-US';
+    recog.continuous = false;
+    recog.interimResults = true;
+    setSpeakStatus('Listening…', 'accent');
+    recog.onresult = (e) => {
+      let txt = '';
+      for (let r = e.resultIndex; r < e.results.length; r++) txt += e.results[r][0].transcript;
+      speechInput.value = txt;
+      if (e.results[e.results.length - 1].isFinal) {
+        setSpeakStatus('Got it', 'success');
+        playSequence(txt.trim());
+      }
+    };
+    recog.onerror = () => setSpeakStatus('Mic error', 'danger');
+    recog.onend = () => { if (speakStatus.textContent.includes('Listening')) setSpeakStatus('Idle'); };
+    recog.start();
+  });
+
+  // ============== RIGHT SIDE: webcam sign -> spoken voice ==============
+  const camVideo = document.getElementById('convCamVideo');
+  const camCanvas = document.getElementById('convCamCanvas');
+  const camCtx = camCanvas.getContext('2d');
+  const camCta = document.getElementById('convCamCta');
+  const startCamBtn = document.getElementById('convStartCamBtn');
+  const captureBtn = document.getElementById('convCaptureBtn');
+  const autoBtn = document.getElementById('convAutoBtn');
+  const handPill = document.getElementById('convHandPill');
+  const camStatus = document.getElementById('convCamStatus');
+  const recRing = document.getElementById('convRecRing');
+
+  let hands = null, mpCam = null;
+  let lastLandmarks = [], handsPresent = false;
+  let busy = false, autoMode = false, autoTimer = null;
+  let lastTranscript = '';
+  const rawCaptureCanvas = document.createElement('canvas');
+  const rawCaptureCtx = rawCaptureCanvas.getContext('2d');
+
+  function setHandPill(on) {
+    handPill.innerHTML = '<span class="pill-dot"></span>' + (on ? 'Hands detected' : 'No hands');
+    handPill.className = 'pill' + (on ? ' success' : '');
+  }
+  function resizeCanvas() {
+    camCanvas.width = camVideo.videoWidth || 640;
+    camCanvas.height = camVideo.videoHeight || 480;
+  }
+  function onResults(results) {
+    resizeCanvas();
+    camCtx.save(); camCtx.clearRect(0,0,camCanvas.width,camCanvas.height);
+    camCtx.drawImage(results.image, 0, 0, camCanvas.width, camCanvas.height);
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length) {
+      handsPresent = true;
+      lastLandmarks = results.multiHandLandmarks;
+      for (const lm of results.multiHandLandmarks) {
+        if (window.drawConnectors && window.HAND_CONNECTIONS) {
+          window.drawConnectors(camCtx, lm, window.HAND_CONNECTIONS, { color: '#00d4ff', lineWidth: 3 });
+        }
+        if (window.drawLandmarks) {
+          window.drawLandmarks(camCtx, lm, { color: '#7c5cff', lineWidth: 1, radius: 4 });
+        }
+      }
+    } else { handsPresent = false; lastLandmarks = []; }
+    setHandPill(handsPresent);
+    camCtx.restore();
+  }
+
+  startCamBtn.addEventListener('click', async () => {
+    camCta.classList.add('hidden');
+    camStatus.textContent = 'Initializing…';
+    try {
+      hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+      hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.5 });
+      hands.onResults(onResults);
+      mpCam = new Camera(camVideo, { onFrame: async () => { await hands.send({ image: camVideo }); }, width: 640, height: 480 });
+      await mpCam.start();
+      captureBtn.disabled = false; autoBtn.disabled = false;
+      camStatus.textContent = 'Camera ready. Sign and click Capture, or enable Auto.';
+    } catch (err) {
+      camStatus.textContent = 'Camera failed: ' + err.message;
+      camCta.classList.remove('hidden');
+    }
+  });
+
+  function grabFrames(count, durationMs) {
+    return new Promise(resolve => {
+      const interval = Math.max(1, Math.floor(durationMs / Math.max(1, count)));
+      const out = [], lms = [];
+      let i = 0;
+      const tick = () => {
+        try {
+          rawCaptureCanvas.width = camVideo.videoWidth || camCanvas.width || 640;
+          rawCaptureCanvas.height = camVideo.videoHeight || camCanvas.height || 480;
+          rawCaptureCtx.drawImage(camVideo, 0, 0, rawCaptureCanvas.width, rawCaptureCanvas.height);
+          out.push(rawCaptureCanvas.toDataURL('image/jpeg', 0.75));
+          lms.push(lastLandmarks.map(h => h.map(p => ({ x: +p.x.toFixed(3), y: +p.y.toFixed(3), z: +p.z.toFixed(3) }))));
+        } catch (_) {}
+        i++;
+        if (i >= count) resolve({ frames: out, landmarks: lms });
+        else setTimeout(tick, interval);
+      };
+      tick();
+    });
+  }
+
+  async function captureSign() {
+    if (busy) return;
+    busy = true;
+    captureBtn.disabled = true; autoBtn.disabled = true;
+    recRing.classList.add('on');
+    camStatus.textContent = 'Capturing…';
+    const t0 = performance.now();
+    const { frames, landmarks } = await grabFrames(12, 2400);
+    camStatus.textContent = 'Recognizing motion…';
+    try {
+      const res = await fetch("{% url 'recognize_sign' %}", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify({ frames, landmarks, context: lastTranscript })
+      });
+      const data = await res.json();
+      const t1 = performance.now();
+      const ms = Math.round(t1 - t0);
+      console.log('[SignBridge] recognize-sign response:', data);
+      if (data.ok && data.text && data.text !== '[unclear]') {
+        lastTranscript = (lastTranscript ? lastTranscript + ' ' : '') + data.text;
+        addLog('deaf', data.text);
+        const engine = data.engine ? ` via ${data.engine}` : '';
+        camStatus.textContent = `Recognized "${data.text}"${engine} in ${ms}ms · speaking…`;
+        await speakWithEleven(data.text);
+      } else if (data.ok) {
+        camStatus.textContent = `⚠ Returned "${data.text || data.raw || '(empty)'}" — try a clearer/slower sign.`;
+      } else {
+        camStatus.textContent = '✗ ' + (data.error || 'Unknown error');
+      }
+    } catch (err) {
+      camStatus.textContent = 'Network error';
+    } finally {
+      busy = false;
+      captureBtn.disabled = false; autoBtn.disabled = false;
+      recRing.classList.remove('on');
+    }
+  }
+  captureBtn.addEventListener('click', captureSign);
+  autoBtn.addEventListener('click', () => {
+    autoMode = !autoMode;
+    autoBtn.classList.toggle('btn-accent', autoMode);
+    autoBtn.classList.toggle('btn-ghost', !autoMode);
+    autoBtn.textContent = autoMode ? 'Auto: ON' : 'Auto';
+    if (autoMode) {
+      autoTimer = setInterval(() => { if (handsPresent) captureSign(); }, 3400);
+      camStatus.textContent = 'Auto mode: capturing motion windows while hands are visible.';
+    } else if (autoTimer) {
+      clearInterval(autoTimer); autoTimer = null;
+      camStatus.textContent = 'Auto mode off.';
+    }
+  });
+})();
+</script>
+{% endblock %}

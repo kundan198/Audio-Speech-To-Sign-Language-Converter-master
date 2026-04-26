@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/Users/rs/Downloads/Audio-Speech-To-Sign-Language-Converter-master/venv/bin/python3 --version)",
+      "Bash(xargs ls *)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'SignBridge improvements: optimize sign recognition, add AJAX form submission with video preloading, update team info *)"
+    ]
+  }
+}

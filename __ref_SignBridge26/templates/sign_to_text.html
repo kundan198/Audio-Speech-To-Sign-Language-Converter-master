@@ -1,0 +1,866 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Live Sign → Speech · SignBridge{% endblock %}
+
+{% block extra_css %}
+<style>
+.live-grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 20px; align-items: start; }
+@media (max-width: 860px) { .live-grid { grid-template-columns: 1fr; } }
+
+/* Camera wrap */
+.cam-wrap {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #050507;
+  aspect-ratio: 4/3;
+  box-shadow: var(--shadow-lg);
+}
+.cam-wrap video, .cam-wrap canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+.cam-wrap canvas { z-index: 2; }
+
+/* Overlays */
+.cam-overlay-start {
+  position: absolute; inset: 0; z-index: 10;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  background: rgba(5,5,7,0.92);
+  backdrop-filter: blur(12px);
+  text-align: center; padding: 32px;
+  transition: opacity 0.4s;
+}
+.cam-status-bar {
+  position: absolute; bottom: 0; left: 0; right: 0; z-index: 5;
+  padding: 12px 16px;
+  background: linear-gradient(transparent, rgba(5,5,7,0.95));
+  display: none;
+}
+.cam-ring {
+  position: absolute; inset: 0; z-index: 3;
+  border-radius: 16px; pointer-events: none;
+  transition: box-shadow 0.25s ease;
+}
+.cam-countdown {
+  position: absolute; inset: 0; z-index: 6;
+  display: none;
+  align-items: center; justify-content: center;
+  background: rgba(5,5,7,0.55);
+  backdrop-filter: blur(4px);
+}
+.cam-countdown.active { display: flex; }
+.countdown-num {
+  font-size: 108px; font-weight: 900; line-height: 1;
+  color: #fff;
+  text-shadow: 0 4px 40px rgba(255,107,53,0.9), 0 0 80px rgba(255,107,53,0.5);
+  animation: cnt-pulse 1s ease-in-out;
+}
+@keyframes cnt-pulse {
+  0%   { transform: scale(1.3); opacity: 0; }
+  40%  { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Hold progress arc */
+.hold-arc-wrap {
+  position: absolute; top: 12px; right: 12px; z-index: 4;
+  width: 52px; height: 52px; display: none;
+}
+.hold-arc-wrap.active { display: block; }
+.hold-arc-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.hold-arc-bg { fill: none; stroke: rgba(255,255,255,0.12); stroke-width: 4; }
+.hold-arc-fg { fill: none; stroke-width: 4; stroke-linecap: round;
+  stroke: #00d4ff; transition: stroke-dashoffset 0.1s linear; }
+
+/* Transcript */
+.tx-box {
+  min-height: 90px;
+  font-size: 26px; font-weight: 600; letter-spacing: -0.02em;
+  line-height: 1.35; word-break: break-word;
+  color: var(--text);
+}
+.tx-placeholder { color: var(--text-muted); font-size: 15px; font-weight: 400; }
+
+/* Word chips */
+.word-chip {
+  display: inline-block;
+  background: rgba(124,92,255,0.18);
+  border: 1px solid rgba(124,92,255,0.35);
+  border-radius: 8px;
+  padding: 2px 10px;
+  margin: 2px 3px;
+  font-size: 22px; font-weight: 600;
+  color: var(--text);
+  animation: chip-pop 0.25s var(--ease) both;
+}
+@keyframes chip-pop {
+  from { transform: scale(0.7); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+/* Status dot pulsing */
+.s-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  flex-shrink: 0; transition: background 0.3s;
+}
+.s-dot.pulse-live { animation: sdot-pulse 1.2s ease-in-out infinite; }
+@keyframes sdot-pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+/* History items */
+.hist-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 10px;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  animation: fade-up 0.2s ease both;
+}
+.hist-ts { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+
+/* Sentence card highlight */
+.sent-card {
+  border-left: 3px solid var(--accent-2);
+  animation: fade-up 0.35s var(--ease) both;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<section style="padding: 20px 0 60px;">
+<div class="container" style="max-width: 1100px;">
+
+  <!-- Header -->
+  <div style="text-align:center; margin-bottom:24px;" class="fade-up">
+    <div class="pill" style="margin-bottom:12px;">
+      <span class="pill-dot" style="background:var(--accent-2);box-shadow:0 0 8px var(--accent-2);"></span>
+      Live Sign → Speech
+    </div>
+    <h1 class="h1">Sign with your hands.<br>Hear your words.</h1>
+    <p class="lead" style="font-size:15px; margin-top:10px; max-width:500px; margin-left:auto; margin-right:auto;">
+      Hold any ASL sign → word appears → lower hands → Gemini forms a sentence → spoken aloud automatically
+    </p>
+  </div>
+
+  <div class="live-grid">
+
+    <!-- ── LEFT: CAMERA ─────────────────────────────────── -->
+    <div class="fade-up d1">
+      <div class="cam-wrap">
+        <video id="vid" autoplay playsinline muted></video>
+        <canvas id="cvs"></canvas>
+
+        <!-- Start overlay -->
+        <div class="cam-overlay-start" id="startOverlay">
+          <div style="font-size:60px; margin-bottom:20px; line-height:1;">🤟</div>
+          <h2 style="color:#fff; font-size:20px; margin-bottom:10px; font-weight:700;">Live Sign Translation</h2>
+          <p style="color:rgba(255,255,255,0.6); font-size:14px; margin-bottom:28px; max-width:300px;">
+            Hold a sign still for a moment → it gets recognized → lower hands → sentence is spoken
+          </p>
+          <button id="startBtn" class="btn btn-accent btn-lg" style="font-size:16px;">
+            ▶ &nbsp;Start Live Translation
+          </button>
+        </div>
+
+        <!-- Countdown -->
+        <div class="cam-countdown" id="cntDown">
+          <div class="countdown-num" id="cntNum">3</div>
+        </div>
+
+        <!-- Hold arc (top-right) -->
+        <div class="hold-arc-wrap" id="holdArc">
+          <svg class="hold-arc-svg" viewBox="0 0 52 52">
+            <circle class="hold-arc-bg" cx="26" cy="26" r="22"/>
+            <circle class="hold-arc-fg" id="holdArcFg" cx="26" cy="26" r="22"
+              stroke-dasharray="138.2" stroke-dashoffset="138.2"/>
+          </svg>
+        </div>
+
+        <!-- Camera ring (colored border based on state) -->
+        <div class="cam-ring" id="camRing"></div>
+
+        <!-- Status bar -->
+        <div class="cam-status-bar" id="statusBar">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div class="s-dot" id="sDot"></div>
+            <span id="sText" style="color:#eee; font-size:13px; flex:1;"></span>
+            <span id="sLatency" style="color:#888; font-size:11px; font-family:'JetBrains Mono',monospace;"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pills row -->
+      <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; align-items:center;">
+        <span class="pill" id="handPill">
+          <span class="pill-dot"></span>No hands
+        </span>
+        <span class="pill" id="stabilityPill" style="display:none;">
+          <span class="pill-dot" id="stPilldot" style="background:var(--warning);"></span>
+          <span id="stPillTxt">Moving</span>
+        </span>
+      </div>
+
+      <!-- Action buttons -->
+      <div style="display:flex; gap:8px; margin-top:12px;">
+        <button id="clearBtn" class="btn btn-danger" style="flex:1;">Clear</button>
+        <button id="speakNowBtn" class="btn btn-ghost" style="flex:1;" title="Speak & formulate now">Speak now</button>
+        <button id="copyBtn" class="btn btn-ghost btn-sm">Copy</button>
+      </div>
+    </div>
+
+    <!-- ── RIGHT: OUTPUT ────────────────────────────────── -->
+    <div style="display:flex; flex-direction:column; gap:16px;" class="fade-up d2">
+
+      <!-- Live transcript -->
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+          <span class="eyebrow">Signs Detected</span>
+          <span class="dim mono" id="wordCount" style="font-size:12px;">0 words</span>
+        </div>
+        <div class="tx-box" id="txBox">
+          <span class="tx-placeholder">Hold a sign to start…</span>
+        </div>
+      </div>
+
+      <!-- Last sentence spoken -->
+      <div class="card sent-card" id="sentCard" style="display:none;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+          <span class="eyebrow">Sentence Spoken</span>
+          <span class="pill accent" style="margin-left:auto;">
+            <span class="pill-dot"></span>🔊 Auto-played
+          </span>
+        </div>
+        <div id="sentBox" style="font-size:18px; line-height:1.5; color:var(--text);"></div>
+      </div>
+
+      <!-- Voice engine -->
+      <div class="card" style="padding:16px;">
+        <div class="eyebrow" style="margin-bottom:10px;">Voice Engine</div>
+        <select id="engineSel" style="margin-bottom:8px;">
+          <option value="browser">Browser TTS — instant, zero latency</option>
+          <option value="elevenlabs">ElevenLabs — realistic AI voice</option>
+        </select>
+        <select id="voiceSel"></select>
+      </div>
+
+      <!-- Word history -->
+      <div class="card" style="padding:16px;">
+        <div class="eyebrow" style="margin-bottom:10px;">Word History</div>
+        <div id="histBox" style="display:flex; flex-direction:column; gap:5px; max-height:180px; overflow-y:auto;">
+          <span style="color:var(--text-muted); font-size:13px;">No words yet.</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script>
+(function () {
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════
+//  CONFIG  — image-frame mode: captures video frames → recognize_sign
+// ═══════════════════════════════════════════════════════════════════
+const CFG = {
+  STABLE_THRESH : 0.022,   // avg landmark movement to be "still"
+  STABLE_HOLD_MS: 300,     // ms hand must be still before capture
+  SIGN_CHANGE   : 0.045,   // landmark dist = new sign
+  NO_HAND_WAIT  : 1500,    // ms no hands → speak sentence
+  MIN_API_GAP   : 1200,    // ms minimum between API calls
+  DUP_WINDOW    : 1500,    // suppress same word within this window
+  SNAP_FRAMES   : 4,       // frames to capture per recognition
+  SNAP_INTERVAL : 80,      // ms between captured frames
+};
+
+// ═══════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════
+const $   = id => document.getElementById(id);
+const vid           = $('vid');
+const cvs           = $('cvs');
+const ctx2d         = cvs.getContext('2d');
+const startOverlay  = $('startOverlay');
+const startBtn      = $('startBtn');
+const statusBar     = $('statusBar');
+const sDot          = $('sDot');
+const sText         = $('sText');
+const sLatency      = $('sLatency');
+const camRing       = $('camRing');
+const handPill      = $('handPill');
+const stabilityPill = $('stabilityPill');
+const stPilldot     = $('stPilldot');
+const stPillTxt     = $('stPillTxt');
+const cntDown       = $('cntDown');
+const cntNum        = $('cntNum');
+const holdArc       = $('holdArc');
+const holdArcFg     = $('holdArcFg');
+const txBox         = $('txBox');
+const wordCountEl   = $('wordCount');
+const sentCard      = $('sentCard');
+const sentBox       = $('sentBox');
+const clearBtn      = $('clearBtn');
+const speakNowBtn   = $('speakNowBtn');
+const copyBtn       = $('copyBtn');
+const engineSel     = $('engineSel');
+const voiceSel      = $('voiceSel');
+const histBox       = $('histBox');
+
+// ═══════════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════════
+let prevLM          = null;   // first-hand landmarks previous frame
+let stableStart     = null;   // when current "still" phase started
+let lastRecogLM     = null;   // first-hand landmarks at last recognition
+let lastApiAt       = 0;      // Date.now() of last API call
+let handGoneAt      = null;   // Date.now() when hands left frame
+
+// Off-screen canvas for JPEG frame capture (reused each capture)
+const rawCanvas = document.createElement('canvas');
+const rawCtx    = rawCanvas.getContext('2d');
+let cntIntervalId   = null;   // setInterval for countdown display
+let busy            = false;  // recognition API call in-flight
+let formulatingNow  = false;  // formulate+speak in progress
+let transcript      = '';     // accumulated words (space separated)
+let wordChips       = [];     // array of recognized word strings
+let lastWord        = '';     // most recently appended word
+let lastWordAt      = 0;      // when lastWord was appended
+let voices          = [];     // browser voice list
+
+function getCookie(n) {
+  const m = document.cookie.match('(^|;)\\s*' + n + '\\s*=\\s*([^;]+)');
+  return m ? decodeURIComponent(m.pop()) : '';
+}
+const CSRF = getCookie('csrftoken');
+
+// ═══════════════════════════════════════════════════════════════════
+//  STATUS / RING UI
+// ═══════════════════════════════════════════════════════════════════
+const RING = {
+  off       : '',
+  moving    : 'inset 0 0 0 3px rgba(255,214,10,0.55)',
+  holding   : 'inset 0 0 0 3px rgba(0,212,255,0.7), 0 0 30px rgba(0,212,255,0.25)',
+  recognizing:'inset 0 0 0 4px rgba(124,92,255,0.9), 0 0 50px rgba(124,92,255,0.4)',
+  countdown : 'inset 0 0 0 4px rgba(255,107,53,0.8), 0 0 40px rgba(255,107,53,0.35)',
+  speaking  : 'inset 0 0 0 4px rgba(48,209,88,0.8),  0 0 40px rgba(48,209,88,0.3)',
+};
+const DOT = {
+  off       : '#555',
+  moving    : '#ffd60a',
+  holding   : '#00d4ff',
+  recognizing:'#7c5cff',
+  countdown : '#ff6b35',
+  speaking  : '#30d158',
+};
+
+function setUI(mode, msg, latency) {
+  camRing.style.boxShadow = RING[mode] || '';
+  sDot.style.background   = DOT[mode]  || '#555';
+  sDot.className          = 's-dot' + (mode !== 'off' ? ' pulse-live' : '');
+  sText.textContent       = msg || '';
+  if (latency !== undefined) sLatency.textContent = latency;
+}
+
+function setHandPill(present) {
+  handPill.innerHTML = '<span class="pill-dot" style="background:' +
+    (present ? 'var(--accent-2)' : '#555') + ';' +
+    (present ? 'box-shadow:0 0 8px var(--accent-2)' : '') + '"></span>' +
+    (present ? 'Hands detected' : 'No hands');
+  handPill.className = 'pill' + (present ? ' accent' : '');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  TRANSCRIPT  (chip-based)
+// ═══════════════════════════════════════════════════════════════════
+function renderTranscript() {
+  transcript = wordChips.join(' ');
+  if (!wordChips.length) {
+    txBox.innerHTML = '<span class="tx-placeholder">Hold a sign to start…</span>';
+    wordCountEl.textContent = '0 words';
+    return;
+  }
+  txBox.innerHTML = wordChips.map(w =>
+    `<span class="word-chip">${escHtml(w)}</span>`
+  ).join(' ');
+  wordCountEl.textContent = wordChips.length + (wordChips.length === 1 ? ' word' : ' words');
+}
+
+function appendWord(word) {
+  if (!word || word === '[unclear]') return false;
+  const now = Date.now();
+  if (word.toLowerCase() === lastWord.toLowerCase() && (now - lastWordAt) < CFG.DUP_WINDOW) return false;
+  lastWord   = word;
+  lastWordAt = now;
+  wordChips.push(word);
+  renderTranscript();
+  addHistory(word);
+  return true;
+}
+
+function clearTranscript() {
+  wordChips = []; transcript = '';
+  lastWord = ''; lastWordAt = 0;
+  renderTranscript();
+}
+
+function addHistory(word) {
+  const ts = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  // Only clear the placeholder <span>, not actual history items
+  const placeholder = histBox.querySelector(':scope > span');
+  if (placeholder) histBox.innerHTML = '';
+  const div = document.createElement('div');
+  div.className = 'hist-item';
+  div.innerHTML = `<span>${escHtml(word)}</span><span class="hist-ts">${ts}</span>`;
+  histBox.insertBefore(div, histBox.firstChild);
+  if (histBox.children.length > 40) histBox.removeChild(histBox.lastChild);
+}
+
+function escHtml(s) {
+  return (s + '').replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  LANDMARK MATH
+// ═══════════════════════════════════════════════════════════════════
+function lmAvgDist(a, b) {
+  if (!a || !b || a.length !== b.length) return 1;
+  let s = 0;
+  for (let i = 0; i < a.length; i++) {
+    const dx = a[i].x - b[i].x, dy = a[i].y - b[i].y;
+    s += Math.sqrt(dx * dx + dy * dy);
+  }
+  return s / a.length;
+}
+
+function cloneLM(lm) {
+  return lm ? lm.map(p => ({ x: p.x, y: p.y, z: p.z })) : null;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  FRAME CAPTURE  — snapshot video frames for Gemini Vision
+// ═══════════════════════════════════════════════════════════════════
+let lastRawLM = [];
+
+function grabSnapFrames() {
+  return new Promise(resolve => {
+    const frames = [], lms = [];
+    let i = 0;
+    const tick = () => {
+      try {
+        rawCanvas.width  = vid.videoWidth  || 640;
+        rawCanvas.height = vid.videoHeight || 480;
+        rawCtx.drawImage(vid, 0, 0, rawCanvas.width, rawCanvas.height);
+        frames.push(rawCanvas.toDataURL('image/jpeg', 0.72));
+        lms.push(lastRawLM.map(p => ({ x: +p.x.toFixed(3), y: +p.y.toFixed(3), z: +p.z.toFixed(3) })));
+      } catch (_) {}
+      i++;
+      if (i >= CFG.SNAP_FRAMES) resolve({ frames, landmarks: lms });
+      else setTimeout(tick, CFG.SNAP_INTERVAL);
+    };
+    tick();
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  RECOGNITION  — video frames → recognize_sign → Gemini Vision
+// ═══════════════════════════════════════════════════════════════════
+async function doRecognize() {
+  if (busy || formulatingNow) return;
+  if (!lastRawLM.length) return;
+  busy = true;
+  lastApiAt = Date.now();
+  setUI('recognizing', '📸 Capturing…');
+  holdArc.classList.remove('active');
+
+  try {
+    const { frames, landmarks } = await grabSnapFrames();
+    setUI('recognizing', '⚡ Recognizing…');
+
+    const t0  = Date.now();
+    const res = await fetch("{% url 'recognize_sign' %}", {
+      method : 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      body   : JSON.stringify({ frames, landmarks, context: transcript })
+    });
+    const data = await res.json();
+    sLatency.textContent = ((Date.now() - t0) / 1000).toFixed(2) + 's';
+
+    if (data.ok && data.text && data.text !== '[unclear]') {
+      const added = appendWord(data.text);
+      setUI('holding', added
+        ? '✓ "' + data.text + '" — change sign or lower hands'
+        : 'Same sign — change or lower hands');
+    } else {
+      lastRecogLM = null;
+      setUI('moving', 'Unclear — hold the sign still');
+    }
+  } catch (e) {
+    lastRecogLM = null;
+    setUI('moving', '⚠ ' + e.message);
+  } finally {
+    busy = false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  HOLD ARC  (progress indicator while stabilizing)
+// ═══════════════════════════════════════════════════════════════════
+const ARC_CIRCUM = 2 * Math.PI * 22;  // r=22 in our SVG
+
+function updateArc(pct) {
+  if (pct <= 0) { holdArc.classList.remove('active'); return; }
+  holdArc.classList.add('active');
+  holdArcFg.style.strokeDashoffset = ARC_CIRCUM * (1 - Math.min(pct, 1));
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  COUNTDOWN  (visual 3-2-1 when hands disappear)
+// ═══════════════════════════════════════════════════════════════════
+function startCountdown() {
+  if (cntIntervalId) return;
+  cntNum.textContent = '…';
+  cntNum.style.animation = 'none';
+  void cntNum.offsetWidth;
+  cntNum.style.animation = 'cnt-pulse 0.3s ease-in-out';
+  cntDown.classList.add('active');
+  camRing.style.boxShadow = RING.countdown;
+  setUI('countdown', '⏳ Hands down — speaking now…');
+  // Fire after NO_HAND_WAIT ms (single shot, no per-second ticking needed)
+  cntIntervalId = setTimeout(() => {
+    cntIntervalId = null;
+    stopCountdown();
+    formulateAndSpeak();
+  }, CFG.NO_HAND_WAIT);
+}
+
+function stopCountdown() {
+  if (cntIntervalId) { clearTimeout(cntIntervalId); cntIntervalId = null; }
+  cntDown.classList.remove('active');
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+//  FORMULATE + SPEAK  (called after 3s no-hands)
+// ═══════════════════════════════════════════════════════════════════
+async function formulateAndSpeak() {
+  if (formulatingNow || !wordChips.length) { resetForNext(); return; }
+  formulatingNow = true;
+  setUI('recognizing', '🧠 Formulating sentence with Gemini…');
+
+  try {
+    let sentence = transcript;
+
+    if (wordChips.length > 1) {
+      try {
+        const res  = await fetch("{% url 'formulate_sentence' %}", {
+          method : 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+          body   : JSON.stringify({ words: wordChips })
+        });
+        const data = await res.json();
+        if (data.ok && data.sentence) sentence = data.sentence;
+      } catch (_) { /* fallback: use raw transcript */ }
+    }
+
+    // Show it
+    sentBox.textContent  = sentence;
+    sentCard.style.display = 'block';
+    sentCard.style.animation = 'none';
+    void sentCard.offsetWidth;
+    sentCard.style.animation = '';
+
+    // Speak it
+    setUI('speaking', '🔊 Speaking: "' + sentence + '"');
+    camRing.style.boxShadow = RING.speaking;
+    await speak(sentence);
+  } catch (_) { /* swallow so finally always runs */ }
+  finally {
+    resetForNext();
+  }
+}
+
+function resetForNext() {
+  formulatingNow = false;
+  busy           = false;
+  prevLM         = null;
+  stableStart    = null;
+  lastRecogLM    = null;
+  handGoneAt     = null;
+  holdArc.classList.remove('active');
+  clearTranscript();
+  setUI('off', '🟢 Ready — show your hands to sign next sentence');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  TTS  (browser first — instant; ElevenLabs optional)
+// ═══════════════════════════════════════════════════════════════════
+async function speak(text) {
+  if (engineSel.value === 'elevenlabs') {
+    const ok = await speakElevenLabs(text);
+    if (!ok) await speakBrowser(text);
+  } else {
+    await speakBrowser(text);
+  }
+}
+
+function speakBrowser(text) {
+  return new Promise(resolve => {
+    if (!('speechSynthesis' in window)) { resolve(); return; }
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    const chosen = voices.find(v => v.name === voiceSel.value);
+    if (chosen) u.voice = chosen;
+    u.rate = 0.95;
+    // Safety timeout: Web Speech onend sometimes never fires (known browser bug)
+    const guard = setTimeout(resolve, 8000);
+    u.onend   = () => { clearTimeout(guard); resolve(); };
+    u.onerror = () => { clearTimeout(guard); resolve(); };
+    window.speechSynthesis.speak(u);
+  });
+}
+
+async function speakElevenLabs(text) {
+  try {
+    const r = await fetch("{% url 'elevenlabs_tts' %}", {
+      method : 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      body   : JSON.stringify({ text, voice_id: voiceSel.value })
+    });
+    if (!r.ok) return false;
+    const url   = URL.createObjectURL(await r.blob());
+    const audio = new Audio(url);
+    await new Promise((res, rej) => {
+      audio.onended = () => { URL.revokeObjectURL(url); res(); };
+      audio.onerror = rej;
+      audio.play();
+    });
+    return true;
+  } catch { return false; }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  MEDIAPIPE FRAME CALLBACK  (core state machine)
+// ═══════════════════════════════════════════════════════════════════
+function onResults(results) {
+  // Draw to canvas
+  cvs.width  = vid.videoWidth  || 640;
+  cvs.height = vid.videoHeight || 480;
+  ctx2d.save();
+  ctx2d.clearRect(0, 0, cvs.width, cvs.height);
+  ctx2d.drawImage(results.image, 0, 0, cvs.width, cvs.height);
+
+  const lms      = results.multiHandLandmarks;
+  const hasHands = !!(lms && lms.length);
+  const curLM    = hasHands ? lms[0] : null;
+  lastRawLM      = curLM || [];
+
+  // Draw skeleton
+  if (hasHands) {
+    for (const hand of lms) {
+      if (window.drawConnectors && window.HAND_CONNECTIONS)
+        drawConnectors(ctx2d, hand, HAND_CONNECTIONS, { color: '#00d4ff', lineWidth: 2 });
+      if (window.drawLandmarks)
+        drawLandmarks(ctx2d, hand, { color: '#7c5cff', lineWidth: 1, radius: 3 });
+    }
+  }
+  ctx2d.restore();
+
+  setHandPill(hasHands);
+  const now = Date.now();
+
+  // ── HANDS PRESENT ───────────────────────────────────────────────
+  if (hasHands) {
+    // Hands came back — cancel countdown
+    if (cntIntervalId) stopCountdown();
+    handGoneAt = null;
+
+    // Don't interrupt an in-progress formulation
+    if (formulatingNow) { prevLM = cloneLM(curLM); return; }
+
+    // Velocity: how much did landmarks move since last frame?
+    const velocity = (prevLM && curLM) ? lmAvgDist(curLM, prevLM) : 1;
+    prevLM = cloneLM(curLM);
+
+    if (velocity < CFG.STABLE_THRESH) {
+      // ── HAND IS STILL ──────────────────────────────────────────
+      if (!stableStart) stableStart = now;
+      const heldMs = now - stableStart;
+      const pct    = heldMs / CFG.STABLE_HOLD_MS;
+
+      stabilityPill.style.display = '';
+      stPilldot.style.background  = pct >= 1 ? 'var(--accent-2)' : 'var(--warning)';
+      stPillTxt.textContent = pct >= 1 ? 'Held ✓' : 'Hold… ' + Math.round(pct * 100) + '%';
+      updateArc(pct);
+
+      if (pct >= 1 && !busy) {
+        // Check: is this a different sign from the last one we recognized?
+        const isDiff    = !lastRecogLM || lmAvgDist(curLM, lastRecogLM) > CFG.SIGN_CHANGE;
+        const cooldownOk = (now - lastApiAt) >= CFG.MIN_API_GAP;
+
+        if (isDiff && cooldownOk) {
+          lastRecogLM = cloneLM(curLM);
+          setUI('holding', '✋ Sign held — recognizing…');
+          doRecognize();
+        } else if (!isDiff) {
+          setUI('holding', 'Same sign held — change sign or lower hands to speak');
+        }
+      } else if (!busy) {
+        setUI('moving', 'Hold still… ' + Math.round(pct * 100) + '%');
+      }
+
+    } else {
+      // ── HAND IS MOVING ─────────────────────────────────────────
+      stableStart = null;
+      stabilityPill.style.display = '';
+      stPilldot.style.background  = 'var(--warning)';
+      stPillTxt.textContent       = 'Moving…';
+      updateArc(0);
+      if (!busy) setUI('moving', 'Moving — hold the sign still');
+    }
+
+  } else {
+    // ── NO HANDS ────────────────────────────────────────────────
+    prevLM      = null;
+    stableStart = null;
+    stabilityPill.style.display = 'none';
+    holdArc.classList.remove('active');
+
+    if (formulatingNow) return;
+
+    if (!handGoneAt) handGoneAt = now;
+
+    if (wordChips.length && !cntIntervalId) {
+      // We have words — start countdown to speak
+      startCountdown();
+    } else if (!wordChips.length) {
+      setUI('off', '🟢 Ready — show your hands to sign');
+      camRing.style.boxShadow = RING.off;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  CAMERA INIT
+// ═══════════════════════════════════════════════════════════════════
+async function startCamera() {
+  startOverlay.style.opacity = '0';
+  startOverlay.style.pointerEvents = 'none';
+  setTimeout(() => { startOverlay.style.display = 'none'; }, 400);
+  statusBar.style.display = 'block';
+  setUI('off', 'Initializing MediaPipe Hands…');
+
+  const hands = new Hands({
+    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+  });
+  hands.setOptions({
+    maxNumHands          : 2,
+    modelComplexity      : 1,
+    minDetectionConfidence : 0.65,
+    minTrackingConfidence  : 0.5
+  });
+  hands.onResults(onResults);
+
+  const cam = new Camera(vid, {
+    onFrame: async () => { await hands.send({ image: vid }); },
+    width: 640, height: 480
+  });
+
+  try {
+    await cam.start();
+    setUI('off', '🟢 Live — show your hands to start signing');
+  } catch (err) {
+    startOverlay.style.display = 'flex';
+    startOverlay.style.opacity = '1';
+    startOverlay.style.pointerEvents = '';
+    setUI('off', '❌ ' + err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  VOICE ENGINE
+// ═══════════════════════════════════════════════════════════════════
+function loadBrowserVoices() {
+  if (!('speechSynthesis' in window)) return;
+  voices = window.speechSynthesis.getVoices();
+  voiceSel.innerHTML = '';
+  const en = voices.filter(v => v.lang.startsWith('en'));
+  (en.length ? en : voices).forEach(v => {
+    const o = document.createElement('option');
+    o.value = v.name;
+    o.textContent = v.name + ' (' + v.lang + ')';
+    voiceSel.appendChild(o);
+  });
+  if (!voices.length) voiceSel.innerHTML = '<option>System default</option>';
+}
+
+async function loadElevenVoices() {
+  voiceSel.innerHTML = '<option>Loading…</option>';
+  try {
+    const r = await fetch("{% url 'elevenlabs_voices' %}");
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error);
+    voiceSel.innerHTML = '';
+    (d.voices || []).forEach(v => {
+      const o = document.createElement('option');
+      o.value = v.voice_id;
+      o.textContent = v.name + (v.category ? ' · ' + v.category : '');
+      voiceSel.appendChild(o);
+    });
+    if (!d.voices || !d.voices.length) voiceSel.innerHTML = '<option>No voices</option>';
+  } catch (e) {
+    voiceSel.innerHTML = '<option>Error: ' + e.message + '</option>';
+  }
+}
+
+engineSel.addEventListener('change', () => {
+  if (engineSel.value === 'elevenlabs') loadElevenVoices(); else loadBrowserVoices();
+});
+if ('speechSynthesis' in window) window.speechSynthesis.onvoiceschanged = loadBrowserVoices;
+loadBrowserVoices();
+
+// ═══════════════════════════════════════════════════════════════════
+//  BUTTON WIRING
+// ═══════════════════════════════════════════════════════════════════
+startBtn.addEventListener('click', startCamera);
+
+clearBtn.addEventListener('click', () => {
+  stopCountdown();
+  formulatingNow = false;
+  busy           = false;
+  stableStart    = null;
+  lastRecogLM    = null;
+  handGoneAt     = null;
+  holdArc.classList.remove('active');
+  sentCard.style.display = 'none';
+  clearTranscript();
+  setUI('off', '🟢 Cleared — show your hands to sign');
+  camRing.style.boxShadow = RING.off;
+});
+
+speakNowBtn.addEventListener('click', () => {
+  if (!wordChips.length) return;
+  stopCountdown();
+  formulateAndSpeak();
+});
+
+copyBtn.addEventListener('click', async () => {
+  if (!transcript) return;
+  try { await navigator.clipboard.writeText(transcript); sText.textContent = 'Copied to clipboard ✓'; }
+  catch (_) {}
+});
+
+})();
+</script>
+{% endblock %}

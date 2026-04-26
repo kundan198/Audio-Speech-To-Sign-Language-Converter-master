@@ -1,0 +1,223 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}SignBridge — Real-time two-way sign language translation{% endblock %}
+
+{% block content %}
+
+<!-- HERO -->
+<section class="section" style="padding-top: 80px; padding-bottom: 40px;">
+  <div class="container" style="text-align:center;">
+    <div class="pill fade-up" style="margin-bottom: 24px;">
+      <span class="pill-dot" style="background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2);"></span>
+      <span>Powered by Gemini Vision &middot; MediaPipe &middot; ElevenLabs</span>
+    </div>
+    <h1 class="h-display fade-up d1">
+      Conversation,<br>
+      <span class="gradient-text">without barriers.</span>
+    </h1>
+    <p class="lead fade-up d2" style="max-width: 640px; margin: 28px auto 0;">
+      SignBridge is a real-time, two-way translator between spoken English
+      and American Sign Language. Built so a Deaf person and a hearing person
+      can have an actual conversation &mdash; not a workaround.
+    </p>
+    <div class="fade-up d3" style="display: flex; gap: 12px; justify-content: center; margin-top: 36px; flex-wrap: wrap;">
+      <a href="{% url 'conversation' %}" class="btn btn-accent btn-lg">
+        Start a live conversation
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 5l7 7-7 7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+      <a href="{% url 'about' %}" class="btn btn-ghost btn-lg">Learn more</a>
+    </div>
+
+    <!-- Floating preview -->
+    <div class="fade-up d4" style="margin-top: 64px; position: relative;">
+      <div class="card glow" style="max-width: 880px; margin: 0 auto; padding: 0; overflow: hidden; aspect-ratio: 16/9; position: relative;">
+        <video autoplay loop muted playsinline style="width: 100%; height: 100%; object-fit: cover; display:block;">
+          <source src="{% static 'Hello.mp4' %}" type="video/mp4">
+        </video>
+        <div style="position:absolute; inset: 0; background: linear-gradient(180deg, transparent 60%, rgba(5,5,7,0.95));"></div>
+        <div style="position:absolute; bottom: 28px; left: 28px; right: 28px; display:flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap;">
+          <div>
+            <div class="pill accent" style="margin-bottom: 12px;">
+              <span class="pill-dot"></span> Live signing
+            </div>
+            <div class="h2" style="margin: 0;">"Hello"</div>
+            <div class="dim" style="font-size: 14px; margin-top: 4px;">Recognized in 0.8s &middot; 96% confidence</div>
+          </div>
+          <div class="pill" style="font-family: 'JetBrains Mono', monospace;">
+            <span class="pill-dot" style="background: var(--success); box-shadow: 0 0 8px var(--success);"></span>
+            gemini-1.5-flash
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STATS -->
+<section class="section" style="padding-top: 60px; padding-bottom: 40px;">
+  <div class="container">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 24px;">
+      <div class="card" style="text-align: center;">
+        <div class="h1 gradient-text" style="margin-bottom: 4px;">466M</div>
+        <div class="dim" style="font-size: 14px;">people worldwide are Deaf or hard of hearing</div>
+      </div>
+      <div class="card" style="text-align: center;">
+        <div class="h1 gradient-text" style="margin-bottom: 4px;">70M</div>
+        <div class="dim" style="font-size: 14px;">use sign language as their first language</div>
+      </div>
+      <div class="card" style="text-align: center;">
+        <div class="h1 gradient-text" style="margin-bottom: 4px;">3&times;</div>
+        <div class="dim" style="font-size: 14px;">higher rate of preventable medical errors in the Deaf community</div>
+      </div>
+      <div class="card" style="text-align: center;">
+        <div class="h1 gradient-text" style="margin-bottom: 4px;">&lt;1s</div>
+        <div class="dim" style="font-size: 14px;">end-to-end translation latency on SignBridge</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- THREE MODES -->
+<section class="section">
+  <div class="container">
+    <div style="text-align: center; margin-bottom: 56px;">
+      <div class="eyebrow" style="margin-bottom: 12px;">Three modes. One platform.</div>
+      <h2 class="h1">Built for every kind of conversation.</h2>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;">
+
+      <!-- Mode 1: Speech to Sign -->
+      <a href="{% url 'animation' %}" class="card card-hover" style="text-decoration: none; color: inherit; display: block;">
+        <div style="width: 56px; height: 56px; border-radius: 16px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); display: flex; align-items: center; justify-content: center; margin-bottom: 20px;">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2v20M5 9c0-2 1.5-3 3.5-3S12 7 12 9s-1.5 3-3.5 3M19 15c0 2-1.5 3-3.5 3S12 17 12 15s1.5-3 3.5-3" stroke="white" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3 class="h3" style="margin-bottom: 8px;">Speech &rarr; Sign</h3>
+        <p class="dim" style="font-size: 14px; margin-bottom: 16px;">
+          Speak or type in English. Watch it become sign language animations
+          in real time. Perfect for hearing people communicating with Deaf
+          family, customers, or patients.
+        </p>
+        <div class="pill">
+          <span class="pill-dot" style="background: var(--accent);"></span>
+          NLP &middot; ISL animation library
+        </div>
+      </a>
+
+      <!-- Mode 2: Sign to Speech -->
+      <a href="{% url 'sign_to_text' %}" class="card card-hover" style="text-decoration: none; color: inherit; display: block;">
+        <div style="width: 56px; height: 56px; border-radius: 16px; background: linear-gradient(135deg, var(--accent-2), var(--accent-3)); display: flex; align-items: center; justify-content: center; margin-bottom: 20px;">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+            <path d="M2 12h4l3-9 4 18 3-9h6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3 class="h3" style="margin-bottom: 8px;">Sign &rarr; Speech</h3>
+        <p class="dim" style="font-size: 14px; margin-bottom: 16px;">
+          Sign into your webcam. MediaPipe tracks your hands locally; Gemini
+          Vision interprets the sign; the answer is spoken aloud. The first
+          time many Deaf users get to "have a voice."
+        </p>
+        <div class="pill">
+          <span class="pill-dot" style="background: var(--accent-2);"></span>
+          MediaPipe &middot; Gemini Vision &middot; TTS
+        </div>
+      </a>
+
+      <!-- Mode 3: Live Conversation -->
+      <a href="{% url 'conversation' %}" class="card card-hover card-glow" style="text-decoration: none; color: inherit; display: block;">
+        <div style="width: 56px; height: 56px; border-radius: 16px; background: linear-gradient(135deg, var(--accent-3), var(--accent)); display: flex; align-items: center; justify-content: center; margin-bottom: 20px;">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+            <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.97-4.03 9-9 9-1.5 0-2.91-.37-4.15-1.02L3 21l1.02-5.85A8.96 8.96 0 0 1 3 12c0-4.97 4.03-9 9-9s9 4.03 9 9Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3 class="h3" style="margin-bottom: 8px;">Live Conversation</h3>
+        <p class="dim" style="font-size: 14px; margin-bottom: 16px;">
+          Both directions, side by side. A Deaf person and a hearing person
+          stand at one screen and talk &mdash; no interpreter, no typing back
+          and forth. Includes Healthcare Mode for clinical visits.
+        </p>
+        <div class="pill accent">
+          <span class="pill-dot"></span>
+          The flagship mode
+        </div>
+      </a>
+
+    </div>
+  </div>
+</section>
+
+<!-- HEALTHCARE MODE CALLOUT -->
+<section class="section">
+  <div class="container">
+    <div class="card" style="padding: 48px; display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center;">
+      <div>
+        <div class="eyebrow" style="margin-bottom: 12px;">Healthcare Mode</div>
+        <h2 class="h2" style="margin-bottom: 16px;">Built for the doctor's office.</h2>
+        <p class="lead">
+          Deaf patients face <strong style="color: var(--text);">3&times; the rate</strong>
+          of preventable medical errors, largely due to communication gaps.
+          SignBridge's Healthcare Mode preloads medical vocabulary, simplifies
+          jargon with Gemini before signing it, and keeps a written transcript
+          for the patient to take home.
+        </p>
+        <div style="display: flex; gap: 8px; margin-top: 24px; flex-wrap: wrap;">
+          <span class="pill"><span class="pill-dot"></span>Plain-language rewriting</span>
+          <span class="pill"><span class="pill-dot"></span>Medical vocabulary</span>
+          <span class="pill"><span class="pill-dot"></span>Visit transcript</span>
+        </div>
+      </div>
+      <div style="position: relative;">
+        <div class="card" style="padding: 20px; background: var(--surface-2);">
+          <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 16px;">
+            <span class="pill success"><span class="pill-dot"></span>Doctor speaking</span>
+          </div>
+          <p style="font-size: 14px; color: var(--text-dim); margin-bottom: 8px; text-decoration: line-through;">
+            "We need to perform a percutaneous coronary intervention on the
+            anterior descending artery."
+          </p>
+          <p style="font-size: 15px; color: var(--text);">
+            "We're going to open up a blocked blood vessel in the front of
+            your heart using a small tube."
+          </p>
+          <div class="pill accent" style="margin-top: 12px;">
+            <span class="pill-dot"></span>
+            Simplified by Gemini before signing
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TECH STACK -->
+<section class="section" style="padding-bottom: 40px;">
+  <div class="container container-sm" style="text-align: center;">
+    <div class="eyebrow" style="margin-bottom: 12px;">The stack</div>
+    <h2 class="h2" style="margin-bottom: 32px;">Best-in-class AI, end to end.</h2>
+    <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+      <span class="pill"><span class="pill-dot" style="background: var(--accent-2);"></span>Google Gemini 1.5 Flash Vision</span>
+      <span class="pill"><span class="pill-dot" style="background: var(--accent);"></span>MediaPipe Hands</span>
+      <span class="pill"><span class="pill-dot" style="background: var(--accent-3);"></span>ElevenLabs (voice)</span>
+      <span class="pill"><span class="pill-dot" style="background: var(--success);"></span>Web Speech API</span>
+      <span class="pill"><span class="pill-dot" style="background: var(--warning);"></span>Django + NLTK</span>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="section">
+  <div class="container container-sm" style="text-align: center;">
+    <h2 class="h1" style="margin-bottom: 16px;">Ready to bridge the conversation?</h2>
+    <p class="lead" style="margin-bottom: 32px;">No installation. No hardware. Just a webcam and a microphone.</p>
+    {% if user.is_authenticated %}
+      <a href="{% url 'conversation' %}" class="btn btn-accent btn-lg">Open Live Conversation</a>
+    {% else %}
+      <a href="{% url 'signup' %}" class="btn btn-accent btn-lg">Create your account</a>
+    {% endif %}
+  </div>
+</section>
+
+{% endblock %}

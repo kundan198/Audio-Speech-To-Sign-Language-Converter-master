@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}Log in · SignBridge{% endblock %}
+
+{% block content %}
+<section class="section" style="min-height: calc(100vh - 200px); display:flex; align-items:center;">
+  <div class="container container-sm" style="max-width: 440px;">
+    <div class="card card-glow fade-up" style="padding: 40px;">
+      <div style="text-align: center; margin-bottom: 28px;">
+        <div class="eyebrow" style="margin-bottom: 8px;">Welcome back</div>
+        <h1 class="h2">Log in to SignBridge</h1>
+      </div>
+      <form class="site-form" action="." method="post">
+        {% csrf_token %}
+        {{ form }}
+        {% if request.GET.next %}
+          <input type="hidden" name="next" value="{{ request.GET.next }}">
+        {% endif %}
+        <button type="submit" class="btn btn-accent" style="width: 100%; margin-top: 8px;">Log in</button>
+      </form>
+      <div style="text-align: center; margin-top: 24px; font-size: 14px;" class="dim">
+        New here? <a href="{% url 'signup' %}" style="color: var(--accent-2); text-decoration: none;">Create an account &rarr;</a>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

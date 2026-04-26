@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block title %}Contact · SignBridge{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container container-sm">
+    <div class="fade-up" style="text-align: center; margin-bottom: 40px;">
+      <div class="eyebrow" style="margin-bottom: 12px;">Get in touch</div>
+      <h1 class="h1">Contact us</h1>
+      <p class="lead" style="margin-top: 12px;">
+        Questions, partnership ideas, accessibility feedback &mdash; we want to hear it.
+      </p>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;" class="contact-grid">
+      <div class="card fade-up d1">
+        <div class="eyebrow" style="margin-bottom: 8px;">Email</div>
+        <a href="mailto:hello@signbridge.app" style="color: var(--text); font-size: 18px; text-decoration: none;">hello@signbridge.app</a>
+      </div>
+      <div class="card fade-up d2">
+        <div class="eyebrow" style="margin-bottom: 8px;">Twitter / X</div>
+        <a href="#" style="color: var(--text); font-size: 18px; text-decoration: none;">@signbridge</a>
+      </div>
+      <div class="card fade-up d3">
+        <div class="eyebrow" style="margin-bottom: 8px;">The team</div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <span class="pill"><span class="pill-dot"></span>Rishil Shah</span>
+          <span class="pill"><span class="pill-dot"></span>Uday Kocherla</span>
+          <span class="pill"><span class="pill-dot"></span>Kundan Srinivas</span>
+          <span class="pill"><span class="pill-dot"></span>Hemangi Patil</span>
+        </div>
+      </div>
+      <div class="card fade-up d4">
+        <div class="eyebrow" style="margin-bottom: 8px;">Status</div>
+        <span class="pill success"><span class="pill-dot"></span>All systems operational</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+@media (max-width: 700px) { .contact-grid { grid-template-columns: 1fr !important; } }
+</style>
+{% endblock %}

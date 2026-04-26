@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block title %}Sign up · SignBridge{% endblock %}
+
+{% block content %}
+<section class="section" style="min-height: calc(100vh - 200px); display:flex; align-items:center;">
+  <div class="container container-sm" style="max-width: 480px;">
+    <div class="card card-glow fade-up" style="padding: 40px;">
+      <div style="text-align: center; margin-bottom: 28px;">
+        <div class="eyebrow" style="margin-bottom: 8px;">Get started</div>
+        <h1 class="h2">Create your SignBridge account</h1>
+        <p class="dim" style="font-size: 14px; margin-top: 8px;">Free during the hackathon. No credit card.</p>
+      </div>
+      <form class="site-form" action="." method="post">
+        {% csrf_token %}
+        {{ form }}
+        <button type="submit" class="btn btn-accent" style="width: 100%; margin-top: 8px;">Create account</button>
+      </form>
+      <div style="text-align: center; margin-top: 24px; font-size: 14px;" class="dim">
+        Already have one? <a href="{% url 'login' %}" style="color: var(--accent-2); text-decoration: none;">Log in &rarr;</a>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
