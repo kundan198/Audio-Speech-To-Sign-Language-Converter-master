@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block title %}About | SignBridge{% endblock %}
+
+{% block content %}
+<section class="page narrow">
+  <div class="container container-sm">
+
+    <div class="page-hero fade-up">
+      <div class="page-kicker"><span class="dot"></span>About SignBridge</div>
+      <h1 class="page-title">Conversation is a human right.</h1>
+      <p class="page-subtitle">
+        Around the world, 70 million people use a sign language as their first language. Yet most digital tools
+        still assume everyone speaks. SignBridge exists to close that gap with real-time, two-way translation.
+      </p>
+    </div>
+
+    <div class="panel-grid" style="gap: 14px;">
+      <div class="card fade-up d1">
+        <h2 class="h3" style="margin-bottom: 12px;">What it does</h2>
+        <p class="dim">
+          SignBridge translates both directions in real time. Speech becomes sign animations. Webcam hand gestures
+          become spoken English. Live Conversation mode runs both sides together so Deaf and hearing users can talk
+          naturally on one screen.
+        </p>
+      </div>
+
+      <div class="card fade-up d2">
+        <h2 class="h3" style="margin-bottom: 12px;">How it works</h2>
+        <p class="dim">
+          Speech to sign uses NLP preprocessing and sign-video sequencing. Sign to speech uses MediaPipe Hands for
+          landmarks and Gemini Vision for recognition, then speaks with browser TTS or ElevenLabs. The system is built
+          for low latency and practical conversations.
+        </p>
+      </div>
+
+      <div class="card fade-up d3">
+        <h2 class="h3" style="margin-bottom: 12px;">Why Healthcare Mode</h2>
+        <p class="dim">
+          Healthcare Mode simplifies doctor speech into plain language before signing, then keeps a transcript for
+          follow-up clarity. This directly addresses communication gaps that increase preventable clinical risk.
+        </p>
+      </div>
+
+      <div class="card fade-up d4">
+        <h2 class="h3" style="margin-bottom: 12px;">The team</h2>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <span class="pill"><span class="pill-dot"></span>Rishil Shah</span>
+          <span class="pill"><span class="pill-dot"></span>Uday Kocherla</span>
+          <span class="pill"><span class="pill-dot"></span>Kundan Srinivas</span>
+          <span class="pill"><span class="pill-dot"></span>Hemangi Patil</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+{% endblock %}
