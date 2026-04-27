@@ -1,4 +1,4 @@
-﻿from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from django.contrib.auth import login,logout
@@ -16,6 +16,7 @@ import re
 import uuid
 from pathlib import Path
 from functools import lru_cache
+import urllib.request
 
 ALLOWED_SIGN_WORDS = [
 	"After", "Again", "Against", "Age", "All", "Alone", "Also", "And", "Ask", "At", "Be",
@@ -112,18 +113,48 @@ def _extract_json_list(text):
 
 
 def _clip_ready_words(words):
-	"""Keep Gemini tokens aligned with the exact clip filenames in assets/."""
-	vocab = set(_sign_vocab())
-	normalized = {word.lower(): word for word in vocab}
-	out = []
-	for word in words:
-		asset = normalized.get(word.lower())
-		if asset:
-			out.append(asset)
-		else:
-			out.extend(c.upper() for c in word if c.isalnum() and c.upper() in vocab)
-	return out
+	"""Filter sign tokens to only those with an animation clip in assets/.
+	Strict mode: words not in ALLOWED_SIGN_WORDS are dropped entirely -
+	no letter-spelling fallback - so the output never contains stray letters."""
+	allowed_set = {w.lower(): w for w in ALLOWED_SIGN_WORDS}
+	return [allowed_set[w.lower()] for w in words if w.lower() in allowed_set]
 
+
+
+# ---------------------------------------------------------------------------
+# Ollama helper - fast local LLM, no API key needed
+# Set OLLAMA_URL (default http://localhost:11434) and
+# OLLAMA_MODEL (default llama3.2) in your .env to configure.
+# ---------------------------------------------------------------------------
+
+def _ollama_generate(prompt: str, *, max_tokens: int = 80, timeout: float = 6.0) -> str:
+	"""Send a prompt to a local Ollama instance and return the response text.
+
+	Returns empty string on any error so callers can fall back gracefully.
+	Speed knobs:
+	  - num_predict caps output tokens (fewer = faster)
+	  - temperature 0 = greedy decode (no sampling overhead)
+	  - num_ctx 512 keeps the KV-cache tiny for short prompts
+	"""
+	url = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/") + "/api/generate"
+	model = os.environ.get("OLLAMA_MODEL", "llama3.2")
+	body = json.dumps({
+		"model": model,
+		"prompt": prompt,
+		"stream": False,
+		"options": {
+			"temperature": 0,
+			"num_predict": max_tokens,
+			"num_ctx": 512,
+		},
+	}).encode()
+	req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+	try:
+		with urllib.request.urlopen(req, timeout=timeout) as resp:
+			data = json.loads(resp.read())
+			return (data.get("response") or "").strip()
+	except Exception:
+		return ""
 
 @login_required(login_url="login")
 @require_http_methods(["POST"])
@@ -138,60 +169,46 @@ def translate_signs_view(request):
 	if not text:
 		return JsonResponse({"ok": False, "error": "No text provided."}, status=400)
 
-	words = _convert_sentence_with_gemini(text) or _convert_sentence_locally(text)
+	try:
+		words = _convert_sentence_with_llm(text) or _convert_sentence_locally(text)
+	except Exception:
+		words = []
+	# Final safety net: strip anything that isn't a known sign word
+	words = _clip_ready_words(words)
 	return JsonResponse({"ok": True, "words": words, "text": text})
 
 
-def _convert_sentence_with_gemini(sentence):
-	api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-	if not api_key:
-		return []
+def _convert_sentence_with_llm(sentence):
+	"""Convert an English sentence to ASL sign tokens using Ollama.
+	Output is strictly filtered to ALLOWED_SIGN_WORDS - no letter spelling."""
+	allowed_list = "\n".join(ALLOWED_SIGN_WORDS)
+	prompt = (
+		"You are a Sign Language simplifier.\n"
+		"Convert the sentence into a meaningful sequence using ONLY the allowed words below.\n\n"
+		"Allowed words:\n" + allowed_list + "\n\n"
+		"Rules:\n"
+		"- Output ONLY a JSON list.\n"
+		"- Do not use ANY word outside the allowed list.\n"
+		"- Keep the meaning as close as possible.\n"
+		"- Use ME for I or me.\n"
+		"- Use Cannot for can\'t.\n"
+		"- Use Do Not for don\'t.\n"
+		"- Use Thank You for thanks.\n"
+		"- Remove articles, prepositions, and filler words.\n\n"
+		"Sentence: " + sentence + "\n\nJSON list:"
+	)
 
-	try:
-		import google.generativeai as genai
-	except ImportError:
-		return []
-
-	prompt = f"""
-You are a Sign Language simplifier.
-
-Convert the sentence into a meaningful sequence using ONLY the allowed words.
-
-Allowed words:
-{ALLOWED_SIGN_WORDS}
-
-Rules:
-- Output ONLY a valid JSON list.
-- Do not use markdown.
-- Do not write explanations.
-- Do not use any word outside the list.
-- Keep meaning.
-- Use "ME" for I/me.
-- Use "Cannot" for can't/cannot.
-- Use "Do Not" for don't/do not.
-- Use "Thank You" for thanks/thank you.
-- Remove unnecessary words.
-- Prefer short ASL-style meaning order.
-
-Sentence:
-{sentence}
-"""
-	try:
-		genai.configure(api_key=api_key)
-		model = genai.GenerativeModel(os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"))
-		response = model.generate_content(prompt)
-	except Exception:
-		return []
-
-	allowed = {word.lower(): word for word in ALLOWED_SIGN_WORDS}
-	signs = []
-	for word in _extract_json_list(response.text):
-		match = allowed.get(word.lower())
-		if match:
-			signs.append(match)
-	return _clip_ready_words(signs)
+	raw = _ollama_generate(prompt, max_tokens=120, timeout=float(os.environ.get("OLLAMA_TEXT_TIMEOUT", "8.0")))
+	if raw:
+		allowed = {word.lower(): word for word in ALLOWED_SIGN_WORDS}
+		signs = [allowed[w.lower()] for w in _extract_json_list(raw) if w.lower() in allowed]
+		if signs:
+			return _clip_ready_words(signs)
+	return []
 
 
+# Alias so any existing callers still work
+_convert_sentence_with_gemini = _convert_sentence_with_llm
 def _convert_sentence_locally(text):
 	# Lowercase the text so stop-word removal is case-insensitive.
 	# Previously `text.lower()` was called but its return value was discarded
@@ -248,26 +265,27 @@ def _convert_sentence_locally(text):
 	elif probable_tense == "present" and tense["present_continuous"] >= 1:
 		words = ["Now"] + words
 
+	# Strict filter: only keep words that exist in ALLOWED_SIGN_WORDS.
+	# Words with no animation are dropped entirely  --  no letter-spelling fallback.
+	allowed_set = {w.lower(): w for w in ALLOWED_SIGN_WORDS}
 	filtered_text = []
 	for w in words:
-		path = w + ".mp4"
-		f = finders.find(path)
-		#splitting the word if its animation is not present in database
-		if not f:
-			for c in w:
-				filtered_text.append(c)
-		#otherwise animation of word
-		else:
-			filtered_text.append(w)
+		canonical = allowed_set.get(w.lower())
+		if canonical:
+			filtered_text.append(canonical)
+		# else: silently drop  --  never spell out individual letters
 	return filtered_text
 
 @login_required(login_url="login")
 def animation_view(request):
 	if request.method == 'POST':
 		text = request.POST.get('sen')
-		words = _convert_sentence_with_gemini(text) or _convert_sentence_locally(text)
-
-
+		try:
+			words = _convert_sentence_with_llm(text) or _convert_sentence_locally(text)
+		except Exception:
+			words = []
+		# Final safety net: strip anything that isn't a known sign word
+		words = _clip_ready_words(words)
 		return render(request,'animation.html',{'words':words,'text':text})
 	else:
 		return render(request,'animation.html')
@@ -489,19 +507,32 @@ def recognize_sign_view(request):
 			"predictions": wlasl_result.get("predictions", []),
 		})
 
+	# 3. Local keypoint GRU (fast, no API key, works from landmarks alone)
+	keypoint_result = _recognize_with_keypoint(landmarks)
+	if keypoint_result and keypoint_result.get("text") and keypoint_result.get("text") != "[unclear]":
+		return JsonResponse({
+			"ok": True,
+			"text": keypoint_result["text"],
+			"raw": keypoint_result["text"],
+			"engine": "keypoint-gru",
+			"predictions": keypoint_result.get("predictions", []),
+		})
+
 	api_key = os.environ.get('GEMINI_API_KEY', '').strip()
 	if not api_key:
-		if wlasl_result:
-			return JsonResponse({
-				"ok": True,
-				"text": wlasl_result.get("text", "[unclear]"),
-				"raw": wlasl_result.get("text", "[unclear]"),
-				"engine": "wlasl-i3d",
-				"predictions": wlasl_result.get("predictions", []),
-			})
+		# Return best available result rather than failing hard
+		for result, engine in [(keypoint_result, "keypoint-gru"), (wlasl_result, "wlasl-i3d")]:
+			if result:
+				return JsonResponse({
+					"ok": True,
+					"text": result.get("text", "[unclear]"),
+					"raw": result.get("text", "[unclear]"),
+					"engine": engine,
+					"predictions": result.get("predictions", []),
+				})
 		return JsonResponse({
 			"ok": False,
-			"error": "GEMINI_API_KEY environment variable is not set on the server.",
+			"error": "No recognizer available (GEMINI_API_KEY not set, keypoint/WLASL returned nothing).",
 		}, status=500)
 
 	# Lazy import so the rest of the app still works even if the SDK is missing.
@@ -601,7 +632,7 @@ def conversation_view(request):
 @login_required(login_url="login")
 @require_http_methods(["POST"])
 def simplify_text_view(request):
-	"""Use Gemini to simplify text for a given mode (e.g. healthcare jargon
+	"""Use Ollama to simplify text for a given mode (e.g. healthcare jargon
 	-> plain language). Returns { ok, text }.
 	"""
 	try:
@@ -613,16 +644,6 @@ def simplify_text_view(request):
 	mode = (payload.get('mode') or 'standard').strip().lower()
 	if not text:
 		return JsonResponse({"ok": False, "error": "No text provided."}, status=400)
-
-	api_key = os.environ.get('GEMINI_API_KEY', '').strip()
-	if not api_key:
-		# Soft fail: just return the original text so the UI keeps flowing.
-		return JsonResponse({"ok": True, "text": text, "note": "GEMINI_API_KEY not set; passthrough."})
-
-	try:
-		import google.generativeai as genai
-	except ImportError:
-		return JsonResponse({"ok": True, "text": text, "note": "SDK missing; passthrough."})
 
 	mode_prompts = {
 		"healthcare": (
@@ -643,17 +664,14 @@ def simplify_text_view(request):
 		# Standard mode: no rewriting.
 		return JsonResponse({"ok": True, "text": text})
 
-	try:
-		genai.configure(api_key=api_key)
-		model = genai.GenerativeModel(os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash'))
-		prompt = system + "\n\nSentence: " + text
-		response = model.generate_content(prompt)
-		out = (response.text or '').strip().strip('"').strip("'")
-		out = out.splitlines()[0] if out else text
-		return JsonResponse({"ok": True, "text": out})
-	except Exception as exc:
-		# Soft-fail to passthrough so the conversation keeps moving.
-		return JsonResponse({"ok": True, "text": text, "note": f"Gemini error: {exc}"})
+	prompt = system + "\n\nSentence: " + text
+
+	out = _ollama_generate(prompt, max_tokens=80, timeout=float(os.environ.get("OLLAMA_TEXT_TIMEOUT", "8.0")))
+	if out:
+		out = out.splitlines()[0].strip().strip('"').strip("'")
+		return JsonResponse({"ok": True, "text": out or text})
+
+	return JsonResponse({"ok": True, "text": text, "note": "Ollama unavailable; returning original text."})
 
 
 # -----------------------------------------------------------------------------
@@ -663,7 +681,7 @@ def simplify_text_view(request):
 @login_required(login_url="login")
 @require_http_methods(["POST"])
 def live_recognize_view(request):
-	"""Single JPEG frame â†’ Gemini Flash Vision â†’ ASL word.
+	"""Single JPEG frame ->' Gemini Flash Vision ->' ASL word.
 	Optimised for the live sign-to-speech pipeline: one frame, tight prompt.
 
 	Body:  { "frame": "data:image/jpeg;base64,...", "context": "words so far" }
@@ -674,15 +692,29 @@ def live_recognize_view(request):
 	except (ValueError, UnicodeDecodeError) as exc:
 		return JsonResponse({"ok": False, "error": str(exc)}, status=400)
 
-	frame   = (payload.get('frame') or '').strip()
-	context = (payload.get('context') or '').strip()
+	frame     = (payload.get('frame') or '').strip()
+	context   = (payload.get('context') or '').strip()
+	landmarks = payload.get('landmarks') or []  # optional: MediaPipe hand landmarks
+
+	if not frame and not landmarks:
+		return JsonResponse({"ok": False, "error": "No frame."}, status=400)
+
+	# Fast path: local keypoint model (no API key, no image decode needed)
+	if landmarks:
+		kr = _recognize_with_keypoint(landmarks)
+		if kr and kr.get("text") and kr.get("text") != "[unclear]":
+			return JsonResponse({
+				"ok": True, "text": kr["text"],
+				"engine": "keypoint-gru",
+				"predictions": kr.get("predictions", []),
+			})
 
 	if not frame:
-		return JsonResponse({"ok": False, "error": "No frame."}, status=400)
+		return JsonResponse({"ok": True, "text": "[unclear]", "note": "No frame and keypoint was unclear."})
 
 	api_key = os.environ.get('GEMINI_API_KEY', '').strip()
 	if not api_key:
-		return JsonResponse({"ok": False, "error": "GEMINI_API_KEY not set."}, status=500)
+		return JsonResponse({"ok": False, "error": "GEMINI_API_KEY not set and no landmarks provided."}, status=500)
 
 	try:
 		import google.generativeai as genai
@@ -695,7 +727,7 @@ def live_recognize_view(request):
 	except Exception as exc:
 		return JsonResponse({"ok": False, "error": f"Bad frame: {exc}"}, status=400)
 
-	ctx_hint = f'\nSentence context (words signed so far): "{context}" â€” use this to infer the next likely word.' if context else ''
+	ctx_hint = f'\nSentence context (words signed so far): "{context}"  --  use this to infer the next likely word.' if context else ''
 
 	vocab_str = ', '.join(ALLOWED_SIGN_WORDS)
 	SIGN_HINTS = (
@@ -776,7 +808,7 @@ def live_recognize_view(request):
 		"TALK: index finger at mouth alternately taps forward (speaking) | "
 		"TELEVISION: T-V fingerspelled or TV sign with T and V handshapes | "
 		"THANK YOU: flat hand (fingers together) at chin/lips moves forward toward other person | "
-		"THANK: same as THANK YOU â€” flat hand from chin out | "
+		"THANK: same as THANK YOU  --  flat hand from chin out | "
 		"THAT: Y-hand drops down onto non-dominant flat palm | "
 		"THEY: index finger sweeps in arc pointing to the group referenced | "
 		"THIS: Y-hand or index finger taps on non-dominant palm | "
@@ -816,16 +848,16 @@ def live_recognize_view(request):
 		"You are a certified Deaf interpreter and ASL (American Sign Language) expert trained on lifeprint.com references.\n"
 		"Analyze this single video frame and identify the ASL sign being performed.\n"
 		f"{ctx_hint}\n\n"
-		"=== STEP 1 â€” Analyze these 4 ASL parameters in the image ===\n"
+		"=== STEP 1  --  Analyze these 4 ASL parameters in the image ===\n"
 		"1. HANDSHAPE: fingers shape (fist/S, open/B, index/1, V/2, H, L, C, O, F, Y, W, etc.)\n"
 		"2. LOCATION: forehead, temple, cheek, chin, lips, chest, shoulder, neutral space in front\n"
 		"3. PALM ORIENTATION: toward signer, away, up, down, sideways left/right\n"
-		"4. MOVEMENT: tap, circle, arc, slide, wave, chop, roll, wiggle â€” any motion blur visible\n\n"
-		"=== STEP 2 â€” Match to vocabulary (ONLY valid answers) ===\n"
+		"4. MOVEMENT: tap, circle, arc, slide, wave, chop, roll, wiggle  --  any motion blur visible\n\n"
+		"=== STEP 2  --  Match to vocabulary (ONLY valid answers) ===\n"
 		f"{vocab_str}\n\n"
-		"=== STEP 3 â€” Use these detailed sign descriptions to identify ===\n"
+		"=== STEP 3  --  Use these detailed sign descriptions to identify ===\n"
 		f"{SIGN_HINTS}\n\n"
-		"=== STEP 4 â€” Output ===\n"
+		"=== STEP 4  --  Output ===\n"
 		"Respond with ONLY the single matching word or phrase from the vocabulary list.\n"
 		"- NEVER output individual letters unless the sign is clearly ASL fingerspelling AND no vocabulary word fits.\n"
 		"- Do NOT add punctuation, explanation, or alternatives.\n"
@@ -866,7 +898,7 @@ def live_recognize_view(request):
 
 
 # -----------------------------------------------------------------------------
-# Batch recognize: all sign frames in ONE Gemini call â†’ all words at once
+# Batch recognize: all sign frames in ONE Gemini call ->' all words at once
 # -----------------------------------------------------------------------------
 
 @login_required(login_url="login")
@@ -916,10 +948,10 @@ def batch_recognize_view(request):
 		f"You are a certified Deaf interpreter and ASL (American Sign Language) expert trained on lifeprint.com references.\n"
 		f"I am showing you {n} video frame(s) in chronological order. Each frame shows a person holding a DIFFERENT ASL sign.\n\n"
 		"=== For EACH frame, analyze these 4 ASL parameters ===\n"
-		"1. HANDSHAPE: fist/S, open/B, index/1, V/2, H, L, C, O, F, Y, W â€” what is the exact shape?\n"
+		"1. HANDSHAPE: fist/S, open/B, index/1, V/2, H, L, C, O, F, Y, W  --  what is the exact shape?\n"
 		"2. LOCATION: forehead, temple, cheek, chin, lips, chest, shoulder, neutral space in front\n"
 		"3. PALM ORIENTATION: toward signer, away, up, down, left, right\n"
-		"4. MOVEMENT: tap, circle, arc, slide, wave, chop, roll, wiggle, drop â€” any motion blur?\n\n"
+		"4. MOVEMENT: tap, circle, arc, slide, wave, chop, roll, wiggle, drop  --  any motion blur?\n\n"
 		"=== Valid vocabulary (ONLY answers from this list) ===\n"
 		f"{vocab_str}\n\n"
 		"=== Detailed sign reference (lifeprint.com style) ===\n"
@@ -1000,7 +1032,7 @@ def batch_recognize_view(request):
 		f"Output ONLY {n} word(s)/phrase(s) from the vocabulary list, separated by commas.\n"
 		"Example for 3 frames: Hello, My, Name\n"
 		"- NEVER use individual letters unless the frame clearly shows fingerspelling AND no vocab word fits.\n"
-		"- No numbering, no explanations, no extra text â€” just comma-separated words.\n"
+		"- No numbering, no explanations, no extra text  --  just comma-separated words.\n"
 		"- If a frame has no visible hand or is truly unrecognizable, write: unclear"
 	)
 
@@ -1056,7 +1088,7 @@ def batch_recognize_view(request):
 @login_required(login_url="login")
 @require_http_methods(["POST"])
 def classify_hand_view(request):
-	"""Classify ASL sign from hand geometry features â€” no image, text-only Gemini call.
+	"""Classify ASL sign from hand geometry features  --  no image, text-only Gemini call.
 
 	Body:  { "features": "Thumb:ext, Index:up, Middle:up, Ring:down, Pinky:down | ...", "context": "..." }
 	Response: { "ok": true, "text": "Hello" }
@@ -1078,9 +1110,21 @@ def classify_hand_view(request):
 	if fast_class:
 		return JsonResponse({"ok": True, "text": fast_class})
 
+	# 2. Local keypoint GRU (primary - no API key needed)
+	if landmarks:
+		kr = _recognize_with_keypoint(landmarks)
+		if kr:
+			return JsonResponse({
+				"ok": True,
+				"text": kr["text"],
+				"engine": kr.get("model", "keypoint-gru"),
+				"predictions": kr.get("predictions", []),
+			})
+
+	# 3. Gemini text fallback (landmarks missing or model absent)
 	api_key = os.environ.get('GEMINI_API_KEY', '').strip()
 	if not api_key:
-		return JsonResponse({"ok": False, "error": "GEMINI_API_KEY not set."}, status=500)
+		return JsonResponse({"ok": True, "text": "[unclear]", "note": "No recognizer available."})
 
 	try:
 		import google.generativeai as genai
@@ -1095,7 +1139,6 @@ def classify_hand_view(request):
 		"Rules: reply with ONE word or ONE letter only. No explanation. No punctuation. "
 		"If genuinely unclear reply: unclear"
 	)
-
 	try:
 		genai.configure(api_key=api_key)
 		model = genai.GenerativeModel(os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash'))
@@ -1111,17 +1154,72 @@ def classify_hand_view(request):
 
 
 # -----------------------------------------------------------------------------
-# Sign words -> natural English sentence (Gemini formulation)
+# Sign words -> natural English sentence (Ollama)
 # -----------------------------------------------------------------------------
+
+def _rule_based_sentence(words):
+	"""Construct a basic natural English sentence from ASL sign tokens without LLM."""
+	if not words:
+		return ""
+	w = [x.lower() for x in words]
+
+	# Single-word quick map
+	if len(words) == 1:
+		single = {
+			"hello": "Hello there!", "hi": "Hi!", "bye": "Goodbye!",
+			"good": "That's great!", "great": "That's great!", "best": "That's the best!",
+			"help": "Can you help me?", "thank you": "Thank you!", "thank": "Thank you!",
+			"happy": "I'm so happy!", "sad": "I'm feeling sad.", "sorry": "I'm sorry.",
+			"yes": "Yes!", "no": "No.", "please": "Please help me.",
+			"learn": "I want to learn.", "study": "I need to study.",
+			"go": "Let's go!", "come": "Please come here.", "eat": "Let's eat!",
+			"work": "I'm working.", "home": "I'm going home.", "name": "What is your name?",
+			"me": "It's me!", "you": "How are you?", "beautiful": "That's beautiful!",
+			"wrong": "Something is wrong.", "safe": "You are safe.", "stay": "Please stay.",
+			"stop": "Please stop.", "now": "Do it now!", "time": "What's the time?",
+		}
+		return single.get(w[0], words[0] + ".")
+
+	# Greeting prefix
+	if w[0] == "hello":
+		rest = _rule_based_sentence(words[1:])
+		return "Hello! " + rest
+
+	# ME / My subject
+	if w[0] in ("me", "my"):
+		if len(words) == 2 and w[1] == "name":
+			return "What is my name?"
+		return "My " + " ".join(words[1:]).lower() + "."
+
+	# Question starters
+	question_words = {"what", "when", "where", "who", "why", "how", "which", "whose"}
+	if w[0] in question_words:
+		return " ".join(words) + "?"
+
+	# Thank / Thank You
+	if w[0] in ("thank", "thank you"):
+		return "Thank you so much!"
+
+	# Help pattern
+	if w[0] == "help":
+		return "Please help me " + " ".join(words[1:]).lower() + "." if len(words) > 1 else "Can you help me?"
+
+	# Default: capitalise first word, join rest, end with period
+	return words[0].capitalize() + " " + " ".join(words[1:]).lower() + "."
+
+
+def _ollama_sentence_is_valid(sentence, words):
+	"""Return False if Ollama just echoed the input words back unchanged."""
+	norm_out = re.sub(r'[^a-z\s]', '', sentence.lower()).strip()
+	norm_in  = re.sub(r'[^a-z\s]', '', ' '.join(words).lower()).strip()
+	# Reject if output is identical to or a trivial prefix/suffix of the input
+	return norm_out != norm_in and norm_in not in norm_out
+
 
 @login_required(login_url="login")
 @require_http_methods(["POST"])
 def formulate_sentence_view(request):
-	"""Take a list of raw sign-translated words and return a natural English sentence via Gemini.
-
-	Body:  { "words": ["Hello", "My", "Name", "John"] }
-	Response: { "ok": true, "sentence": "Hello, my name is John." }
-	"""
+	"""Sign words -> natural English sentence via Ollama, with rule-based fallback."""
 	try:
 		payload = json.loads(request.body.decode('utf-8'))
 	except (ValueError, UnicodeDecodeError) as exc:
@@ -1131,35 +1229,39 @@ def formulate_sentence_view(request):
 	if not words:
 		return JsonResponse({"ok": False, "error": "No words provided."}, status=400)
 
-	raw_text = ' '.join(words)
-
-	api_key = os.environ.get('GEMINI_API_KEY', '').strip()
-	if not api_key:
-		return JsonResponse({"ok": True, "sentence": raw_text, "note": "GEMINI_API_KEY not set; passthrough."})
-
-	try:
-		import google.generativeai as genai
-	except ImportError:
-		return JsonResponse({"ok": True, "sentence": raw_text, "note": "SDK missing; passthrough."})
-
 	prompt = (
-		"You are a sign language interpreter assistant. "
-		"The user signed the following words in sequence (ASL/sign-language order):\n\n"
-		f"Words: {words}\n\n"
-		"Convert these words into one natural, grammatically correct English sentence. "
-		"Fill in missing articles, prepositions, and verb forms to make it fluent. "
-		"Keep the meaning. Output ONLY the finished sentence â€” no explanation, no quotes, no preamble."
+		"Task: turn these ASL sign tokens into one fluent English sentence.\n"
+		"Signs: " + ", ".join(words) + "\n"
+		"Rules: output ONLY the sentence — no labels, no quotes, no extra text.\n"
+		"Make it natural: add pronouns, verbs, articles as needed.\n\n"
+		"Examples:\n"
+		"Signs: Hello => Hello there!\n"
+		"Signs: Good => That's great!\n"
+		"Signs: Help => Can you help me?\n"
+		"Signs: Hello, Good => Hello, hope you're doing well!\n"
+		"Signs: ME, Name => What is my name?\n"
+		"Signs: You, Happy => Are you happy?\n"
+		"Signs: Help, ME, Learn => Please help me learn.\n"
+		"Signs: Thank You => Thank you so much!\n"
+		"Signs: Walk, Home => I am walking home.\n"
+		"Signs: Study, College => I study at college.\n\n"
+		"Signs: " + ", ".join(words) + " =>"
 	)
 
-	try:
-		genai.configure(api_key=api_key)
-		model = genai.GenerativeModel(os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash'))
-		response = model.generate_content(prompt)
-		sentence = (response.text or '').strip().strip('"').strip("'")
-		sentence = sentence.splitlines()[0].strip() if sentence else raw_text
-		return JsonResponse({"ok": True, "sentence": sentence})
-	except Exception as exc:
-		return JsonResponse({"ok": True, "sentence": raw_text, "note": f"Gemini error: {exc}"})
+	ollama_out = _ollama_generate(
+		prompt, max_tokens=60,
+		timeout=float(os.environ.get("OLLAMA_TEXT_TIMEOUT", "8.0")),
+	)
+
+	if ollama_out:
+		sentence = ollama_out.splitlines()[0].strip().strip('"').strip("'")
+		sentence = re.sub(r'^[=->\s]+', '', sentence).strip()
+		if sentence and _ollama_sentence_is_valid(sentence, words):
+			return JsonResponse({"ok": True, "sentence": sentence, "provider": "ollama"})
+
+	# Ollama failed or echoed the input — use rule-based construction
+	sentence = _rule_based_sentence(words)
+	return JsonResponse({"ok": True, "sentence": sentence, "provider": "rules"})
 
 
 # -----------------------------------------------------------------------------
@@ -1169,6 +1271,96 @@ def formulate_sentence_view(request):
 ELEVEN_BASE = "https://api.elevenlabs.io/v1"
 WLASL_DEFAULT_URL = "http://127.0.0.1:8766/predict"
 
+
+
+
+def _recognize_with_keypoint(landmarks, min_confidence=None, min_margin=None):
+    """Run the local GRU keypoint classifier directly in-process.
+
+    Loads the model once and caches it.  Returns the same dict shape as
+    _recognize_with_wlasl so callers can treat both interchangeably:
+      {"ok": True, "text": "Hello", "predictions": [...], "model": "keypoint-gru"}
+    Returns None when the model file is missing or landmarks are empty.
+    """
+    if not landmarks:
+        return None
+    import sys
+    from pathlib import Path as _Path
+    ROOT = _Path(__file__).resolve().parents[1]
+    model_path  = ROOT / "models" / "keypoint_sign" / "keypoint_model.pt"
+    labels_path = ROOT / "models" / "keypoint_sign" / "labels.json"
+    if not model_path.exists() or not labels_path.exists():
+        return None
+
+    # Lazy import heavy deps so startup stays fast
+    try:
+        import torch
+        import numpy as np
+    except ImportError:
+        return None
+
+    # Add ml/ to path so we can import keypoint_features
+    ml_path = str(ROOT / "ml" / "wlasl_i3d")
+    if ml_path not in sys.path:
+        sys.path.insert(0, ml_path)
+    try:
+        from keypoint_features import landmarks_to_array, FEATURE_SIZE
+    except ImportError:
+        return None
+
+    # --- model cache (module-level singleton) ---
+    cache = _recognize_with_keypoint.__dict__
+    mtime = model_path.stat().st_mtime
+    if cache.get("mtime") != mtime or cache.get("model") is None:
+        import json as _json
+        labels = _json.loads(labels_path.read_text())
+        # Inline the GRU architecture (same as train_keypoint_model.py)
+        import torch.nn as nn
+        class _GRU(nn.Module):
+            def __init__(self, n):
+                super().__init__()
+                self.gru = nn.GRU(FEATURE_SIZE, 192, 2, batch_first=True,
+                                  bidirectional=True, dropout=0.25)
+                self.head = nn.Sequential(
+                    nn.LayerNorm(384), nn.Dropout(0.25), nn.Linear(384, n))
+            def forward(self, x):
+                out, _ = self.gru(x)
+                return self.head(out[:, -1, :])
+
+        ckpt  = torch.load(model_path, map_location="cpu")
+        model = _GRU(len(labels))
+        model.load_state_dict(ckpt["state_dict"])
+        model.eval()
+        cache["model"]  = model
+        cache["labels"] = labels
+        cache["mtime"]  = mtime
+
+    model  = cache["model"]
+    labels = cache["labels"]
+
+    conf_thresh   = float(min_confidence or os.environ.get("KEYPOINT_MIN_CONFIDENCE", "0.75"))
+    margin_thresh = float(min_margin      or os.environ.get("KEYPOINT_MIN_MARGIN",     "0.15"))
+
+    import torch
+    import numpy as np
+    arr    = landmarks_to_array(landmarks)
+    tensor = torch.tensor(arr, dtype=torch.float32).unsqueeze(0)
+    with torch.no_grad():
+        probs = torch.softmax(model(tensor)[0], dim=0)
+    top_vals, top_idx = torch.topk(probs, k=min(5, len(labels)))
+    predictions = [
+        {"label": labels[int(i)], "confidence": float(v), "class_id": int(i)}
+        for v, i in zip(top_vals, top_idx)
+    ]
+    best      = predictions[0]
+    runner_up = predictions[1]["confidence"] if len(predictions) > 1 else 0.0
+    confident = best["confidence"] >= conf_thresh and (best["confidence"] - runner_up) >= margin_thresh
+    return {
+        "ok":           True,
+        "text":         best["label"] if confident else "[unclear]",
+        "predictions":  predictions,
+        "model":        "keypoint-gru",
+    }
 
 def _recognize_with_wlasl(frames, landmarks=None):
 	"""Try the local WLASL I3D recognizer.
@@ -1194,7 +1386,7 @@ def _recognize_with_wlasl(frames, landmarks=None):
 				"min_margin": float(os.environ.get('WLASL_MIN_MARGIN', '0.15')),
 				"target_frames": int(os.environ.get('WLASL_TARGET_FRAMES', '48')),
 			},
-			timeout=float(os.environ.get('WLASL_TIMEOUT', '5')),
+			timeout=float(os.environ.get('WLASL_TIMEOUT', '0.8')),
 		)
 		if response.status_code != 200:
 			return None

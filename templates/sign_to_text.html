@@ -295,6 +295,70 @@
   flex-wrap: wrap;
   align-items: center;
 }
+.process-rail {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+.process-step {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.025);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.process-step::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-120%);
+  background: linear-gradient(90deg, transparent, rgba(127,230,255,0.16), transparent);
+}
+.process-step .step-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.22);
+  box-shadow: 0 0 0 4px rgba(255,255,255,0.03);
+}
+.process-step.active {
+  color: #dffaff;
+  border-color: rgba(127,230,255,0.45);
+  background: rgba(0,212,255,0.08);
+}
+.process-step.active::after {
+  animation: step-sweep 1.1s linear infinite;
+}
+.process-step.active .step-dot {
+  background: #7fe6ff;
+  box-shadow: 0 0 0 4px rgba(127,230,255,0.12), 0 0 16px rgba(127,230,255,0.8);
+  animation: step-pulse 0.9s ease-in-out infinite;
+}
+.process-step.done {
+  color: rgba(255,255,255,0.76);
+  border-color: rgba(48,209,88,0.38);
+  background: rgba(48,209,88,0.07);
+}
+.process-step.done .step-dot {
+  background: #30d158;
+  box-shadow: 0 0 0 4px rgba(48,209,88,0.12);
+}
+@keyframes step-sweep {
+  to { transform: translateX(120%); }
+}
+@keyframes step-pulse {
+  0%,100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.35); opacity: 1; }
+}
 .cam-switch {
   margin-left: auto;
   display: inline-flex;
@@ -468,6 +532,7 @@
 }
 
 @media (max-width: 860px) {
+  .process-rail { grid-template-columns: 1fr 1fr; }
   .action-grid { grid-template-columns: 1fr; }
   .action-grid #copyBtn { width: 100%; }
   .chip { font-size: 19px; }
@@ -485,7 +550,10 @@
         <span class="dot"></span>
         Sign to Speech | Mode 2
       </div>
-      <a href="{% url 'conversation' %}" class="btn btn-ghost btn-sm">Open Live Conversation</a>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center;">
+        <a href="{% url 'train_signs' %}" class="btn btn-accent btn-sm">Train Signs</a>
+        <a href="{% url 'conversation' %}" class="btn btn-ghost btn-sm">Open Live Conversation</a>
+      </div>
     </div>
     <h1 class="page-title hero-title">Sign. Pause. Speak.</h1>
     <p class="page-subtitle hero-sub">
@@ -576,6 +644,13 @@
             <input id="camToggle" type="checkbox">
             <span class="track"><span class="thumb"></span></span>
           </label>
+        </div>
+
+        <div class="process-rail" id="processRail" aria-label="Recognition progress">
+          <div class="process-step" data-step="capture"><span class="step-dot"></span><span>Capture sign</span></div>
+          <div class="process-step" data-step="recognize"><span class="step-dot"></span><span>Recognize</span></div>
+          <div class="process-step" data-step="sentence"><span class="step-dot"></span><span>Build sentence</span></div>
+          <div class="process-step" data-step="speak"><span class="step-dot"></span><span>Speak</span></div>
         </div>
 
         <div class="action-grid" style="margin-top:12px;">
@@ -717,12 +792,22 @@
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const CFG = {
   STABLE_THRESH  : 0.022,   // avg landmark movement = "still"
-  STABLE_HOLD_MS : 400,     // ms of stillness before we snap frame
+  STABLE_HOLD_MS : 250,     // ms of stillness before we snap frame
   SIGN_CHANGE    : 0.055,   // landmark dist to count as new sign
-  NO_HAND_MS     : 600,     // ms no hand â†’ trigger batch call
-  CAP_W          : 320,     // smaller frame = faster upload
-  CAP_H          : 240,
-  CAP_Q          : 0.65,    // lower quality = smaller payload
+  NO_HAND_MS     : 300,     // ms no hand -> trigger batch call
+  CAP_W          : 224,     // fallback frame size; fast mode uses landmarks only
+  CAP_H          : 168,
+  CAP_Q          : 0.5,
+  HISTORY_SAMPLE_MS: 60,
+  HISTORY_MAX    : 14,
+  API_FRAME_MAX  : 8,
+  DUP_WINDOW     : 1500,
+  LOCAL_ONLY      : true,
+  SLOW_FALLBACK   : false,
+  FAST_LANDMARK_ONLY: true,
+  FORMULATE_WITH_AI: true,
+  FORMULATE_TIMEOUT_MS: 8000,  // give Ollama enough time to respond
+  AUTO_SPEAK_MS   : 1200,
 };
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -763,6 +848,7 @@ const geminiPanel   = document.getElementById('geminiPanel');
 const geminiChevron = document.getElementById('geminiChevron');
 const geminiPrompt  = document.getElementById('geminiPrompt');
 const geminiRaw     = document.getElementById('geminiRaw');
+const processSteps  = Array.from(document.querySelectorAll('#processRail .process-step'));
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //  STATE
@@ -775,6 +861,11 @@ let handGoneTid  = null;   // setTimeout id for batch trigger
 let processing   = false;  // true while batch API call in flight
 let speaking     = false;
 let capturedFrames = [];   // array of base64 JPEGs, one per sign
+let capturedSamples = [];
+let frameHistory = [];
+let landmarkHistory = [];
+let lastHistoryAt = 0;
+let sentenceSpeakTid = null;
 let words        = [];
 let voices       = [];
 let currentLM    = [];
@@ -782,6 +873,8 @@ let mpHands      = null;
 let mpCam        = null;
 let cameraOn     = false;
 let currentUiState = 'ready';
+let lastWord = '';
+let lastWordAt = 0;
 
 function getCookie(n) {
   const m = document.cookie.match('(^|;)\\s*'+n+'\\s*=\\s*([^;]+)');
@@ -836,6 +929,31 @@ function setStageClasses(state) {
     camBanner.classList.add(stageClass);
     camRing.classList.add(stageClass);
   }
+  updateProcessSteps(state);
+}
+
+function updateProcessSteps(state) {
+  const activeByState = {
+    moving: 'capture',
+    stabilizing: 'capture',
+    snapped: 'capture',
+    processing: 'recognize',
+    formulating: 'sentence',
+    speaking: 'speak',
+  };
+  const doneByState = {
+    processing: ['capture'],
+    formulating: ['capture', 'recognize'],
+    speaking: ['capture', 'recognize', 'sentence'],
+    ready: words.length ? ['capture', 'recognize'] : [],
+  };
+  const active = activeByState[state] || null;
+  const done = new Set(doneByState[state] || []);
+  processSteps.forEach(step => {
+    const key = step.dataset.step;
+    step.classList.toggle('active', key === active);
+    step.classList.toggle('done', done.has(key));
+  });
 }
 function stopHintTicker() {
   if (hintTicker) {
@@ -947,7 +1065,7 @@ function renderWords() {
     txBox.innerHTML = Array.from({length: capturedFrames.length}, (_, i) =>
       `<span class="chip" style="opacity:0.4; border-style:dashed;">Sign ${i+1}</span>`
     ).join(' ');
-    wordCount.textContent = capturedFrames.length + ' sign(s) captured - pending AI';
+    wordCount.textContent = capturedFrames.length + ' sign(s) captured - pending recognition';
   }
   syncDetectedAiLoad();
 }
@@ -966,6 +1084,24 @@ function pushWord(word) {
 function clearWords() {
   words = []; lastWord = ''; lastWordAt = 0;
   renderWords();
+}
+
+function scheduleSentenceSpeak() {
+  if (!words.length || speaking || processing) return;
+  if (sentenceSpeakTid) clearTimeout(sentenceSpeakTid);
+  sentenceSpeakTid = setTimeout(() => {
+    sentenceSpeakTid = null;
+    if (!processing && !speaking && words.length && !capturedFrames.length) {
+      formulateAndSpeak();
+    }
+  }, CFG.AUTO_SPEAK_MS);
+}
+
+function cancelSentenceSpeak() {
+  if (sentenceSpeakTid) {
+    clearTimeout(sentenceSpeakTid);
+    sentenceSpeakTid = null;
+  }
 }
 
 function addHist(word) {
@@ -1012,15 +1148,40 @@ function lmDist(a, b) {
 }
 
 function snapLM(lm) { return lm.map(p => ({x: p.x, y: p.y, z: p.z})); }
+function snapHands(lms) { return (lms || []).map(hand => snapLM(hand)); }
+function flattenHands(lms) {
+  const flat = [];
+  (lms || []).forEach(hand => {
+    hand.forEach(p => flat.push({x: p.x, y: p.y, z: p.z}));
+  });
+  return flat;
+}
+
+function rememberFrame(lms, now) {
+  if ((now - lastHistoryAt) < CFG.HISTORY_SAMPLE_MS) return;
+  lastHistoryAt = now;
+  if (!CFG.FAST_LANDMARK_ONLY || CFG.SLOW_FALLBACK) frameHistory.push(captureFrame());
+  landmarkHistory.push(snapHands(lms));
+  if (frameHistory.length > CFG.HISTORY_MAX) frameHistory.shift();
+  if (landmarkHistory.length > CFG.HISTORY_MAX) landmarkHistory.shift();
+}
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //  SNAP â€” capture a frame locally, no API call yet (instant)
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function snapFrame(lm0) {
+function snapFrame(lms) {
   if (processing || speaking) return;
-  const frame = captureFrame();
+  const frame = (!CFG.FAST_LANDMARK_ONLY || CFG.SLOW_FALLBACK) ? captureFrame() : null;
   capturedFrames.push(frame);
-  lastSnapLM = snapLM(lm0);
+  const frames = frameHistory.slice(-CFG.HISTORY_MAX);
+  const landmarks = landmarkHistory.slice(-CFG.HISTORY_MAX);
+  if (frame) frames.push(frame);
+  if (!landmarks.length) landmarks.push(snapHands(lms));
+  capturedSamples.push({
+    frames: frames.slice(-CFG.API_FRAME_MAX),
+    landmarks: landmarks,
+  });
+  lastSnapLM = flattenHands(lms);
   setArc(0);
   ui('snapped', capturedFrames.length);
   bLatency.textContent = '';
@@ -1029,24 +1190,70 @@ function snapFrame(lm0) {
 }
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-//  BATCH â€” send all frames to Gemini at once, get all words back
+//  BATCH - recognize each captured motion window, then speak the sentence
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function batchAndSpeak() {
+  return recognizePendingSigns(true);
+}
+
+async function recognizePendingSigns(speakAfter = true) {
   if (processing || speaking) return;
   if (!capturedFrames.length) { ui('ready'); return; }
 
+  cancelSentenceSpeak();
   processing = true;
   ui('processing');
   bLatency.textContent = '';
 
   try {
     const t0  = Date.now();
-    const res = await fetch("{% url 'batch_recognize' %}", {
-      method : 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
-      body   : JSON.stringify({ frames: capturedFrames }),
+    const pendingFrames = capturedFrames.slice();
+    const pendingSamples = capturedSamples.slice();
+    const samples = pendingFrames.map((frame, i) => {
+      const sample = pendingSamples[i] || {frames: [frame], landmarks: []};
+      return {
+        frames: (sample.frames && sample.frames.length) ? sample.frames : [frame],
+        landmarks: sample.landmarks || [],
+      };
     });
-    const data = await res.json();
+    const fastSamples = samples.map(sample => ({ landmarks: sample.landmarks || [] }));
+
+    // Recognize all signs in parallel — no sequential waiting
+    const results = await Promise.all(samples.map((sample, i) =>
+      fetch("{% url 'recognize_sign' %}", {
+        method : 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body   : JSON.stringify({
+          frames: sample.frames,
+          landmarks: sample.landmarks,
+          context: '',
+          local_only: CFG.LOCAL_ONLY,
+          keypoint_only: CFG.LOCAL_ONLY,
+        }),
+      }).then(r => r.json()).catch(() => ({ ok: false, text: '', error: 'fetch failed' }))
+    ));
+    const recognized = [];
+    const debug = [];
+    results.forEach((item, i) => {
+      const text = (item.text || '').trim();
+      debug.push({
+        sign: i + 1, ok: !!item.ok,
+        text: text || item.error || '[empty]',
+        engine: item.engine || item.model || 'unknown',
+        predictions: (item.predictions || []).slice(0, 3),
+      });
+      if (item.ok && text && text !== '[unclear]') recognized.push(text);
+    });
+    let data = {ok: !!recognized.length, words: recognized, raw: JSON.stringify(debug, null, 2)};
+
+    if ((!data.words || !data.words.length) && CFG.SLOW_FALLBACK) {
+      const fallback = await fetch("{% url 'batch_recognize' %}", {
+        method : 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body   : JSON.stringify({ frames: pendingFrames }),
+      });
+      data = await fallback.json();
+    }
     bLatency.textContent = ((Date.now() - t0) / 1000).toFixed(2) + 's';
 
     // Update AI debug panel
@@ -1055,9 +1262,19 @@ async function batchAndSpeak() {
     geminiRaw.style.color = data.ok ? '#00d4ff' : '#ff6b6b';
 
     if (data.ok && data.words && data.words.length) {
-      words = data.words;
+      let added = 0;
+      data.words.forEach(word => {
+        if (pushWord(word)) added++;
+      });
       renderWords();
-      await formulateAndSpeak();
+      if (speakAfter) {
+        await formulateAndSpeak();
+      } else {
+        ui('ready');
+        bMsg.textContent = added === 0 ? 'That word is already in the sentence.' : (added === 1 ? 'Word added. Continue signing.' : 'Words added. Continue signing.');
+        bHint.textContent = 'Pause for a moment or press Speak Now to hear the sentence.';
+        scheduleSentenceSpeak();
+      }
     } else {
       bMsg.textContent = 'I could not read that clearly yet.';
       bHint.textContent = data.error || 'Try slower, brighter, and centered hand signs.';
@@ -1071,6 +1288,9 @@ async function batchAndSpeak() {
     stopHintTicker();
     processing = false;
     capturedFrames = [];
+    capturedSamples = [];
+    frameHistory = [];
+    landmarkHistory = [];
   }
 }
 
@@ -1079,17 +1299,22 @@ async function batchAndSpeak() {
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function formulateAndSpeak() {
   if (speaking || !words.length) { ui('ready'); return; }
+  cancelSentenceSpeak();
   speaking = true;
   ui('formulating');
 
   let sentence = words.join(' ');
-  if (words.length > 1) {
+  if (CFG.FORMULATE_WITH_AI) {
     try {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), CFG.FORMULATE_TIMEOUT_MS);
       const res  = await fetch("{% url 'formulate_sentence' %}", {
         method : 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
         body   : JSON.stringify({ words }),
+        signal : ctrl.signal,
       });
+      clearTimeout(tid);
       const data = await res.json();
       if (data.ok && data.sentence) sentence = data.sentence;
     } catch (_) {}
@@ -1122,16 +1347,23 @@ async function speak(text) {
   }
 }
 
+let _activeUtterance = null; // keep ref to prevent GC before onend fires
 function speakBrowser(text) {
   return new Promise(resolve => {
     if (!('speechSynthesis' in window)) { resolve(); return; }
     window.speechSynthesis.cancel();
+    // Resume in case Chrome silently paused synthesis (tab focus bug)
+    if (window.speechSynthesis.paused) window.speechSynthesis.resume();
     const u = new SpeechSynthesisUtterance(text);
+    _activeUtterance = u; // prevent GC
     const chosen = voices.find(v => v.name === voiceSel.value);
     if (chosen) u.voice = chosen;
     u.rate = 0.95;
-    u.onend = resolve; u.onerror = resolve;
+    const done = () => { _activeUtterance = null; resolve(); };
+    u.onend = done; u.onerror = done;
     window.speechSynthesis.speak(u);
+    // Safety net: resolve after 10s even if onend never fires
+    setTimeout(done, 10000);
   });
 }
 
@@ -1162,7 +1394,8 @@ function onResults(results) {
   const lms      = results.multiHandLandmarks;
   const hasHands = !!(lms && lms.length);
   const lm0      = hasHands ? lms[0] : null;
-  currentLM      = lm0 || [];
+  const trackedLM = hasHands ? flattenHands(lms) : null;
+  currentLM      = trackedLM || [];
 
   if (hasHands) {
     for (const hand of lms) {
@@ -1175,16 +1408,18 @@ function onResults(results) {
 
   setHandPill(hasHands);
   const now = Date.now();
+  if (hasHands && !processing && !speaking) rememberFrame(lms, now);
 
   // â”€â”€ Hand present â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (hasHands) {
     if (handGoneTid) { clearTimeout(handGoneTid); handGoneTid = null; }
+    cancelSentenceSpeak();
     handGoneAt = null;
 
-    if (processing || speaking) { prevLM = snapLM(lm0); return; }
+    if (processing || speaking) { prevLM = trackedLM; return; }
 
-    const velocity = prevLM ? lmDist(lm0, prevLM) : 1;
-    prevLM = snapLM(lm0);
+    const velocity = prevLM ? lmDist(trackedLM, prevLM) : 1;
+    prevLM = trackedLM;
 
     if (velocity < CFG.STABLE_THRESH) {
       // â”€â”€ Still â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1203,9 +1438,9 @@ function onResults(results) {
 
       if (pct >= 1) {
         // Check if this is a new/different sign from the last snap
-        const isDiff = !lastSnapLM || lmDist(lm0, lastSnapLM) > CFG.SIGN_CHANGE;
+        const isDiff = !lastSnapLM || lmDist(trackedLM, lastSnapLM) > CFG.SIGN_CHANGE;
         if (isDiff) {
-          snapFrame(lm0);   // â† instant, no API call
+          snapFrame(lms);   // instant, no API call
         } else {
           // Same sign held â€” just show last snap count
           if (capturedFrames.length) ui('snapped', capturedFrames.length);
@@ -1217,7 +1452,7 @@ function onResults(results) {
       stableStart = null;
       setArc(0);
       // Only show "hold still" if we haven't snapped this sign yet
-      if (!lastSnapLM || lmDist(lm0, lastSnapLM) > CFG.SIGN_CHANGE * 0.5) {
+      if (!lastSnapLM || lmDist(trackedLM, lastSnapLM) > CFG.SIGN_CHANGE * 0.5) {
         if (!capturedFrames.length) ui('moving');
         else {
           setStageClasses('moving');
@@ -1242,14 +1477,23 @@ function onResults(results) {
       if (capturedFrames.length && !handGoneTid) {
         // Trigger batch call after short pause
         setStageClasses('processing');
-        bMsg.textContent  = 'AI is now analyzing ' + capturedFrames.length + ' captured sign(s)...';
-        bHint.textContent = 'Nice work so far. Preparing your translation.';
+        bMsg.textContent  = 'Adding ' + capturedFrames.length + ' captured sign(s) to your sentence...';
+        bHint.textContent = 'Keep signing after it appears, or press Speak Now when finished.';
         handGoneTid = setTimeout(() => {
           handGoneTid = null;
-          batchAndSpeak();
+          recognizePendingSigns(false);
         }, CFG.NO_HAND_MS);
       } else if (!capturedFrames.length) {
-        ui('ready');
+        frameHistory = [];
+        landmarkHistory = [];
+        if (!words.length) {
+          ui('ready');
+        } else {
+          ui('ready');
+          bMsg.textContent = 'Sentence ready. Continue signing or pause to speak.';
+          bHint.textContent = 'Press Speak Now if you are finished.';
+          scheduleSentenceSpeak();
+        }
       }
     }
   }
@@ -1271,7 +1515,7 @@ async function startCamera() {
     locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
   });
   mpHands.setOptions({
-    maxNumHands            : 1,
+    maxNumHands            : 2,
     modelComplexity        : 0,   // lite = fast
     minDetectionConfidence : 0.55,
     minTrackingConfidence  : 0.5,
@@ -1307,6 +1551,7 @@ async function stopCamera() {
   cameraOn = false;
   camToggle.checked = false;
   if (handGoneTid) { clearTimeout(handGoneTid); handGoneTid = null; }
+  cancelSentenceSpeak();
   try { if (mpCam && typeof mpCam.stop === 'function') await mpCam.stop(); } catch (_) {}
   try { if (mpHands && typeof mpHands.close === 'function') await mpHands.close(); } catch (_) {}
   mpCam = null;
@@ -1319,6 +1564,9 @@ async function stopCamera() {
   prevLM = null; stableStart = null; lastSnapLM = null; handGoneAt = null;
   processing = false; speaking = false;
   capturedFrames = [];
+  capturedSamples = [];
+  frameHistory = [];
+  landmarkHistory = [];
   setArc(0);
   statePill.style.display = 'none';
   setHandPill(false);
@@ -1352,7 +1600,7 @@ async function loadElevenVoices() {
     (d.voices || []).forEach(v => {
       const o = document.createElement('option');
       o.value = v.voice_id;
-      o.textContent = v.name + (v.category ? ' Â· ' + v.category : '');
+      o.textContent = v.name + (v.category ? '  -  ' + v.category : '');
       voiceSel.appendChild(o);
     });
     if (!d.voices?.length) voiceSel.innerHTML = '<option>No voices</option>';
@@ -1375,9 +1623,13 @@ camToggle.addEventListener('change', async () => {
 
 clearBtn.addEventListener('click', () => {
   if (handGoneTid) { clearTimeout(handGoneTid); handGoneTid = null; }
+  cancelSentenceSpeak();
   speaking = false; processing = false;
   prevLM = null; stableStart = null; lastSnapLM = null; handGoneAt = null;
   capturedFrames = [];
+  capturedSamples = [];
+  frameHistory = [];
+  landmarkHistory = [];
   holdRing.classList.remove('show');
   sentCard.style.display = 'none';
   sentCard.classList.remove('active');
@@ -1387,6 +1639,7 @@ clearBtn.addEventListener('click', () => {
 
 speakBtn.addEventListener('click', () => {
   if (handGoneTid) { clearTimeout(handGoneTid); handGoneTid = null; }
+  cancelSentenceSpeak();
   if (capturedFrames.length) { batchAndSpeak(); return; }
   if (words.length) formulateAndSpeak();
 });

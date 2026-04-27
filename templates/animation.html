@@ -48,9 +48,17 @@
               </svg>
               <span class="mic-label">Mic</span>
             </button>
-            <button type="submit" class="btn btn-accent">Translate</button>
+            <button type="submit" class="btn btn-accent" id="translateBtn">Translate</button>
           </div>
         </form>
+
+        <div class="translate-loader" id="translateLoader" style="display:none;" aria-live="polite">
+          <div class="loader-orbit"><span></span><span></span><span></span></div>
+          <div>
+            <div class="loader-title" id="translateLoaderTitle">Translating...</div>
+            <div class="loader-sub" id="translateLoaderSub">Choosing the best sign words...</div>
+          </div>
+        </div>
 
         <div class="you-said-wrap" style="margin-top: 28px;{% if not text %} display:none;{% endif %}">
           <div class="eyebrow" style="margin-bottom: 8px;">You said</div>
@@ -151,6 +159,67 @@
 .mic-btn.is-recording .mic-label {
   font-weight: 700;
 }
+.translate-loader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(127,230,255,0.28);
+  background: linear-gradient(135deg, rgba(0,212,255,0.09), rgba(124,92,255,0.08));
+  color: var(--text);
+  animation: loader-enter 0.22s ease-out both;
+}
+.loader-orbit {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(127,230,255,0.25);
+}
+.loader-orbit::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: #7fe6ff;
+  border-right-color: rgba(124,92,255,0.9);
+  animation: loader-spin 0.8s linear infinite;
+}
+.loader-orbit span {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #7fe6ff;
+  box-shadow: 0 0 12px rgba(127,230,255,0.85);
+  animation: loader-dot 1s ease-in-out infinite;
+}
+.loader-orbit span:nth-child(1) { left: 4px; top: 14px; }
+.loader-orbit span:nth-child(2) { right: 5px; top: 7px; animation-delay: 0.15s; }
+.loader-orbit span:nth-child(3) { right: 8px; bottom: 5px; animation-delay: 0.3s; }
+.loader-title {
+  font-size: 13px;
+  font-weight: 800;
+}
+.loader-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+@keyframes loader-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes loader-dot {
+  0%,100% { transform: scale(0.75); opacity: 0.5; }
+  50% { transform: scale(1.25); opacity: 1; }
+}
+@keyframes loader-enter {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 @keyframes mic-pulse {
   0% { box-shadow: 0 0 0 0 rgba(255, 69, 58, 0.50); }
   100% { box-shadow: 0 0 0 12px rgba(255, 69, 58, 0); }
@@ -166,6 +235,32 @@
 (function () {
 'use strict';
 
+// Exact allowed sign words — mirrors ALLOWED_SIGN_WORDS in views.py.
+// Any word not in this set is silently dropped before building chips or videos.
+const ALLOWED = new Set([
+  "After","Again","Against","Age","All","Alone","Also","And","Ask","At","Be",
+  "Beautiful","Before","Best","Better","Busy","But","Bye","Can","Cannot",
+  "Change","College","Come","Computer","Day","Distance","Do","Do Not",
+  "Does Not","Eat","Engineer","Fight","Finish","From","Glitter","Go","God",
+  "Gold","Good","Great","Hand","Hands","Happy","Hello","Help","Her","Here",
+  "His","Home","Homepage","How","Invent","It","Keep","Language","Laugh",
+  "Learn","ME","More","My","Name","Next","Not","Now","Of","On","Our","Out",
+  "Pretty","Right","Sad","Safe","See","Self","Sign","Sing","So","Sound",
+  "Stay","Study","Talk","Television","Thank","Thank You","That","They",
+  "This","Those","Time","To","Type","Us","Walk","Wash","Way","We","Welcome",
+  "What","When","Where","Which","Who","Whole","Whose","Why","Will","With",
+  "Without","Words","Work","World","Wrong","You","Your","Yourself"
+]);
+const ALLOWED_LOWER = new Map([...ALLOWED].map(w => [w.toLowerCase(), w]));
+
+function filterWords(words) {
+  // Strict filter: keep only words in ALLOWED, case-insensitive match.
+  // Single letters, unknown words, and anything not in the list are dropped.
+  return words
+    .map(w => ALLOWED_LOWER.get((w || '').trim().toLowerCase()))
+    .filter(Boolean);
+}
+
 function getCookie(n) {
   const m = document.cookie.match('(^|;)\\s*' + n + '\\s*=\\s*([^;]+)');
   return m ? decodeURIComponent(m.pop()) : '';
@@ -179,6 +274,10 @@ const listEl = document.getElementById('list');
 const emptyState = document.getElementById('emptyState');
 const micBtn = document.getElementById('micBtn');
 const micState = document.getElementById('micState');
+const translateBtn = document.getElementById('translateBtn');
+const translateLoader = document.getElementById('translateLoader');
+const translateLoaderTitle = document.getElementById('translateLoaderTitle');
+const translateLoaderSub = document.getElementById('translateLoaderSub');
 
 let videoSource = [];
 let chips = [];
@@ -186,6 +285,14 @@ let i = 0;
 let playing = false;
 let speechRec = null;
 let isRecording = false;
+
+function setTranslateLoading(active, title, sub) {
+  if (!translateLoader) return;
+  translateLoader.style.display = active ? 'flex' : 'none';
+  if (translateBtn) translateBtn.disabled = !!active;
+  if (translateLoaderTitle && title) translateLoaderTitle.textContent = title;
+  if (translateLoaderSub && sub) translateLoaderSub.textContent = sub;
+}
 
 // â”€â”€ PRELOADING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function preloadIntoBuffer(src) {
@@ -274,7 +381,8 @@ form.addEventListener('submit', async function (e) {
   const text = input.value.trim();
   if (!text) return;
 
-  if (status) status.textContent = 'Translatingâ€¦';
+  if (status) status.textContent = 'Translating...';
+  setTranslateLoading(true, 'Translating...', 'Converting your sentence into sign tokens...');
   playing = false;
   v.pause();
 
@@ -285,34 +393,39 @@ form.addEventListener('submit', async function (e) {
       body: JSON.stringify({ text })
     });
     const data = await res.json();
-    if (!data.ok) { if (status) status.textContent = 'âœ— ' + data.error; return; }
+    if (!data.ok) {
+      if (status) status.textContent = 'Error: ' + data.error;
+      setTranslateLoading(false);
+      return;
+    }
+    setTranslateLoading(true, 'Preparing sign videos', 'Loading the first signs so playback starts smoothly...');
 
-    // Update "You said" display
     if (youSaidBox) {
       youSaidBox.textContent = '"' + data.text + '"';
       youSaidBox.closest('.you-said-wrap').style.display = '';
     }
 
-    // Rebuild word chips and video list
-    buildChips(data.words);
-    videoSource = data.words.map(w => '/static/' + w + '.mp4');
+    const cleanWords = filterWords(data.words);
+    buildChips(cleanWords);
+    videoSource = cleanWords.map(w => '/static/' + w + '.mp4');
 
     if (!videoSource.length) {
       if (status) status.textContent = 'No signs found for that sentence.';
+      setTranslateLoading(false);
       return;
     }
 
-    // Preload first two videos immediately before playback starts
     v.src = videoSource[0];
     v.load();
     if (videoSource[1]) preloadIntoBuffer(videoSource[1]);
 
     play();
+    setTranslateLoading(false);
   } catch (err) {
-    if (status) status.textContent = 'âœ— Network error';
+    if (status) status.textContent = 'Network error';
+    setTranslateLoading(false);
   }
 });
-
 // â”€â”€ SPEECH RECOGNITION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function setMicUi(recording, text) {
   isRecording = recording;
@@ -369,7 +482,10 @@ function ensureRecognizer() {
   };
 
   speechRec.onend = function () {
-    setMicUi(false, input.value.trim() ? 'Type or use mic ->' : 'Mic stopped');
+    const captured = input.value.trim();
+    setMicUi(false, captured ? 'Translating...' : 'Mic stopped');
+    // Auto-translate as soon as mic finishes
+    if (captured) form.dispatchEvent(new Event('submit'));
   };
   return speechRec;
 }
@@ -408,21 +524,35 @@ async function toggleRecording() {
   }
 }
 
+// Auto-translate while typing — fires 900ms after the user stops
+let typeDebounce = null;
+if (input) {
+  input.addEventListener('input', function () {
+    clearTimeout(typeDebounce);
+    const text = input.value.trim();
+    if (!text) return;
+    typeDebounce = setTimeout(function () {
+      if (input.value.trim()) form.dispatchEvent(new Event('submit'));
+    }, 900);
+  });
+}
+
+// On page load: if Django rendered server-side words, filter and auto-play them
+(function initServerWords() {
+  const serverChips = Array.from(listEl.querySelectorAll('.word-chip'));
+  if (!serverChips.length) return;
+  const rawWords = serverChips.map(el => el.dataset.word || el.textContent.trim());
+  const cleanWords = filterWords(rawWords);
+  if (!cleanWords.length) { listEl.innerHTML = ''; return; }
+  buildChips(cleanWords);
+  videoSource = cleanWords.map(w => '/static/' + w + '.mp4');
+  if (emptyState) emptyState.style.display = 'none';
+  setTimeout(play, 300);
+})();
+
 window.playPause = playPause;
 window.restart   = restart;
 if (micBtn) micBtn.addEventListener('click', toggleRecording);
-
-// â”€â”€ INIT: auto-play if server-rendered words exist â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-document.addEventListener('DOMContentLoaded', function () {
-  chips = Array.from((listEl || { getElementsByClassName: () => [] }).getElementsByClassName('word-chip'));
-  videoSource = chips.map(c => '/static/' + c.dataset.word + '.mp4');
-  if (videoSource.length) {
-    v.src = videoSource[0];
-    v.load();
-    if (videoSource[1]) preloadIntoBuffer(videoSource[1]);
-    setTimeout(play, 300);
-  }
-});
 
 })();
 </script>
