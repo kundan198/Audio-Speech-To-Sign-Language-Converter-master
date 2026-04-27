@@ -1158,54 +1158,581 @@ def classify_hand_view(request):
 # -----------------------------------------------------------------------------
 
 def _rule_based_sentence(words):
-	"""Construct a basic natural English sentence from ASL sign tokens without LLM."""
+	"""Convert ASL sign tokens into a natural English sentence using grammar rules.
+	Covers all ALLOWED_SIGN_WORDS and their common combinations."""
 	if not words:
 		return ""
 	w = [x.lower() for x in words]
+	n = len(words)
 
-	# Single-word quick map
-	if len(words) == 1:
+	# ── helpers ──────────────────────────────────────────────────────────────
+	QUESTION_STARTS = {"what", "when", "where", "who", "why", "how", "which", "whose"}
+	NEGATION        = {"cannot", "can not", "do not", "does not", "not", "without"}
+	SUBJECT_MAP     = {
+		"me": "I", "my": "I", "you": "you", "your": "you",
+		"we": "we", "our": "we", "they": "they", "her": "she",
+		"his": "he", "us": "us", "it": "it",
+	}
+	ACTION_VERBS = {
+		"go": "go", "come": "come", "eat": "eat", "help": "help",
+		"learn": "learn", "study": "study", "work": "work", "walk": "walk",
+		"talk": "talk", "sign": "sign", "sing": "sing", "laugh": "laugh",
+		"see": "see", "ask": "ask", "wash": "wash", "stay": "stay",
+		"fight": "fight", "finish": "finish", "invent": "invent",
+		"keep": "keep", "change": "change", "type": "type",
+	}
+	STATE_VERBS = {
+		"happy": "happy", "sad": "sad", "good": "good", "great": "great",
+		"busy": "busy", "alone": "alone", "safe": "safe", "wrong": "wrong",
+		"beautiful": "beautiful", "pretty": "pretty", "best": "the best",
+		"better": "better", "right": "right",
+	}
+
+	def tail(skip=1):
+		return " ".join(words[skip:]).lower()
+
+	# ── SINGLE WORD ──────────────────────────────────────────────────────────
+	if n == 1:
 		single = {
-			"hello": "Hello there!", "hi": "Hi!", "bye": "Goodbye!",
-			"good": "That's great!", "great": "That's great!", "best": "That's the best!",
-			"help": "Can you help me?", "thank you": "Thank you!", "thank": "Thank you!",
-			"happy": "I'm so happy!", "sad": "I'm feeling sad.", "sorry": "I'm sorry.",
-			"yes": "Yes!", "no": "No.", "please": "Please help me.",
-			"learn": "I want to learn.", "study": "I need to study.",
-			"go": "Let's go!", "come": "Please come here.", "eat": "Let's eat!",
-			"work": "I'm working.", "home": "I'm going home.", "name": "What is your name?",
-			"me": "It's me!", "you": "How are you?", "beautiful": "That's beautiful!",
-			"wrong": "Something is wrong.", "safe": "You are safe.", "stay": "Please stay.",
-			"stop": "Please stop.", "now": "Do it now!", "time": "What's the time?",
+			"after":     "See you after!",
+			"again":     "Please do it again.",
+			"against":   "I am against it.",
+			"age":       "What is your age?",
+			"all":       "That's all!",
+			"alone":     "I feel alone.",
+			"also":      "I agree as well.",
+			"and":       "And then?",
+			"ask":       "Let me ask you something.",
+			"at":        "I am right here.",
+			"be":        "Just be yourself.",
+			"beautiful": "That is beautiful!",
+			"before":    "Do it before it's too late.",
+			"best":      "You are the best!",
+			"better":    "Things will get better.",
+			"busy":      "I am busy right now.",
+			"but":       "But wait!",
+			"bye":       "Goodbye!",
+			"can":       "Yes, I can do it!",
+			"cannot":    "I cannot do that.",
+			"change":    "Let's make a change.",
+			"college":   "I study at college.",
+			"come":      "Please come here.",
+			"computer":  "I am using the computer.",
+			"day":       "Have a great day!",
+			"distance":  "The distance is far.",
+			"do":        "Let's do it!",
+			"do not":    "Please do not do that.",
+			"does not":  "It does not work.",
+			"eat":       "Let's eat!",
+			"engineer":  "I am an engineer.",
+			"fight":     "We should not fight.",
+			"finish":    "I am done!",
+			"from":      "Where are you from?",
+			"glitter":   "It shines like glitter!",
+			"go":        "Let's go!",
+			"god":       "Thank God!",
+			"gold":      "It shines like gold.",
+			"good":      "That's great!",
+			"great":     "That is great!",
+			"hand":      "Give me your hand.",
+			"hands":     "Use your hands.",
+			"happy":     "I am so happy!",
+			"hello":     "Hello there!",
+			"help":      "Can you help me?",
+			"her":       "She is here.",
+			"here":      "I am right here.",
+			"his":       "It belongs to him.",
+			"home":      "I am going home.",
+			"homepage":  "Welcome to the homepage!",
+			"how":       "How are you?",
+			"invent":    "Let's invent something new!",
+			"it":        "What is it?",
+			"keep":      "Please keep it safe.",
+			"language":  "Sign language is beautiful.",
+			"laugh":     "Let's laugh together!",
+			"learn":     "I want to learn.",
+			"me":        "It's me!",
+			"more":      "I want more.",
+			"my":        "This is mine.",
+			"name":      "What is your name?",
+			"next":      "What is next?",
+			"not":       "I am not sure.",
+			"now":       "Do it now!",
+			"of":        "That is part of it.",
+			"on":        "It is on the way.",
+			"our":       "This is ours.",
+			"out":       "Let's go out!",
+			"pretty":    "That is pretty!",
+			"right":     "You are right!",
+			"sad":       "I am feeling sad.",
+			"safe":      "You are safe.",
+			"see":       "Nice to see you!",
+			"self":      "Be yourself.",
+			"sign":      "What is this sign?",
+			"sing":      "Let's sing together!",
+			"so":        "So, what do you think?",
+			"sound":     "I can hear the sound.",
+			"stay":      "Please stay here.",
+			"study":     "I need to study.",
+			"talk":      "Let's talk.",
+			"television":"I am watching television.",
+			"thank":     "Thank you!",
+			"thank you": "Thank you so much!",
+			"that":      "What is that?",
+			"they":      "They are here.",
+			"this":      "What is this?",
+			"those":     "What are those?",
+			"time":      "What time is it?",
+			"to":        "Where do you want to go?",
+			"type":      "Please type it.",
+			"us":        "It is for us.",
+			"walk":      "Let's go for a walk.",
+			"wash":      "Please wash your hands.",
+			"way":       "Which way do we go?",
+			"we":        "We are together.",
+			"welcome":   "You are welcome!",
+			"what":      "What is happening?",
+			"when":      "When will it happen?",
+			"where":     "Where are you going?",
+			"which":     "Which one do you want?",
+			"who":       "Who is there?",
+			"whole":     "The whole world.",
+			"whose":     "Whose is this?",
+			"why":       "Why is that?",
+			"will":      "I will do it.",
+			"with":      "I am with you.",
+			"without":   "I cannot live without you.",
+			"words":     "Choose your words carefully.",
+			"work":      "I am at work.",
+			"world":     "The world is beautiful!",
+			"wrong":     "Something is wrong.",
+			"you":       "How are you?",
+			"your":      "Is this yours?",
+			"yourself":  "Be yourself!",
 		}
-		return single.get(w[0], words[0] + ".")
+		return single.get(w[0], words[0].capitalize() + ".")
 
-	# Greeting prefix
+	# ── MULTI-WORD PATTERNS (priority order) ─────────────────────────────────
+
+	# Hello + anything → greeting prefix
 	if w[0] == "hello":
 		rest = _rule_based_sentence(words[1:])
 		return "Hello! " + rest
 
-	# ME / My subject
-	if w[0] in ("me", "my"):
-		if len(words) == 2 and w[1] == "name":
-			return "What is my name?"
-		return "My " + " ".join(words[1:]).lower() + "."
+	# Bye + anything
+	if w[0] == "bye":
+		return "Goodbye! See you " + tail() + "!" if n > 1 else "Goodbye!"
 
-	# Question starters
-	question_words = {"what", "when", "where", "who", "why", "how", "which", "whose"}
-	if w[0] in question_words:
-		return " ".join(words) + "?"
+	# Welcome + anything
+	if w[0] == "welcome":
+		place = tail() if n > 1 else "here"
+		return f"Welcome to {place}!"
 
-	# Thank / Thank You
+	# Thank / Thank You + anything
 	if w[0] in ("thank", "thank you"):
+		if n > 1:
+			return "Thank you for " + tail() + "!"
 		return "Thank you so much!"
 
-	# Help pattern
-	if w[0] == "help":
-		return "Please help me " + " ".join(words[1:]).lower() + "." if len(words) > 1 else "Can you help me?"
+	# ── QUESTION WORDS ───────────────────────────────────────────────────────
+	if w[0] in QUESTION_STARTS:
+		rest_w = w[1:]
+		rest_words = words[1:]
 
-	# Default: capitalise first word, join rest, end with period
-	return words[0].capitalize() + " " + " ".join(words[1:]).lower() + "."
+		# What + YOUR/MY + NAME
+		if w[0] == "what":
+			if "name" in rest_w:
+				subj = "your" if "your" in rest_w else "my" if "my" in rest_w else "your"
+				return f"What is {subj} name?"
+			if "time" in rest_w:
+				return "What time is it?"
+			if "this" in rest_w or not rest_w:
+				return "What is this?"
+			if "that" in rest_w:
+				return "What is that?"
+			return "What " + tail() + "?"
+
+		# Where + HOME / COLLEGE / WORK ...
+		if w[0] == "where":
+			if "home" in rest_w:
+				return "Where is home?"
+			if "you" in rest_w or "your" in rest_w:
+				return "Where are you going?"
+			if "we" in rest_w:
+				return "Where are we going?"
+			return "Where is " + tail() + "?"
+
+		# When + ...
+		if w[0] == "when":
+			if "you" in rest_w:
+				return "When are you coming?"
+			if "we" in rest_w:
+				return "When do we start?"
+			if "finish" in rest_w:
+				return "When do you finish?"
+			return "When is " + tail() + "?"
+
+		# Who + ...
+		if w[0] == "who":
+			if "you" in rest_w:
+				return "Who are you?"
+			if "we" in rest_w:
+				return "Who are we?"
+			if "they" in rest_w:
+				return "Who are they?"
+			return "Who is " + tail() + "?"
+
+		# Why + ...
+		if w[0] == "why":
+			if any(v in rest_w for v in ("sad", "wrong", "fight", "alone")):
+				adj = next(v for v in ("sad", "wrong", "fight", "alone") if v in rest_w)
+				subj = "you" if "you" in rest_w else "they" if "they" in rest_w else "you"
+				return f"Why are {subj} {adj}?"
+			if "not" in rest_w:
+				return "Why not?"
+			return "Why " + tail() + "?"
+
+		# How + ...
+		if w[0] == "how":
+			if not rest_w or "you" in rest_w:
+				return "How are you doing?"
+			if "we" in rest_w:
+				return "How are we doing?"
+			if "learn" in rest_w or "study" in rest_w:
+				return "How do you learn best?"
+			if "work" in rest_w:
+				return "How does it work?"
+			if "much" in rest_w or "more" in rest_w:
+				return "How much more?"
+			return "How " + tail() + "?"
+
+		# Which / Whose / Whole
+		if w[0] == "which":
+			return "Which " + tail() + " do you want?"
+		if w[0] == "whose":
+			return "Whose " + tail() + " is this?"
+		if w[0] == "whole":
+			return "The whole " + tail() + "."
+
+		return " ".join(words) + "?"
+
+	# ── NEGATION PATTERNS ────────────────────────────────────────────────────
+	if w[0] == "cannot":
+		return "I cannot " + tail() + "." if n > 1 else "I cannot do that."
+	if w[0] == "do not":
+		return "Please do not " + tail() + "." if n > 1 else "Please do not do that."
+	if w[0] == "does not":
+		return "It does not " + tail() + "." if n > 1 else "It does not work."
+	if w[0] == "not":
+		if n > 1 and w[1] in STATE_VERBS:
+			return f"I am not {w[1]}."
+		return "I am not " + tail() + "." if n > 1 else "I am not sure."
+	if w[0] == "without":
+		return "I cannot do it without " + tail() + "." if n > 1 else "Without anything."
+
+	# ── PRONOUN SUBJECT PATTERNS ─────────────────────────────────────────────
+	if w[0] in ("me", "my"):
+		subj = "I"
+		if n == 2:
+			if w[1] == "name":       return "My name is..."
+			if w[1] == "home":       return "I am going home."
+			if w[1] == "work":       return "I am at work."
+			if w[1] == "college":    return "I go to college."
+			if w[1] in ACTION_VERBS: return f"I want to {w[1]}."
+			if w[1] in STATE_VERBS:  return f"I am {w[1]}."
+			if w[1] == "help":       return "I need help."
+			if w[1] == "stay":       return "I will stay."
+			if w[1] == "go":         return "I am going."
+			if w[1] == "eat":        return "I am eating."
+			if w[1] == "happy":      return "I am happy!"
+			if w[1] == "sad":        return "I am sad."
+			if w[1] == "busy":       return "I am busy."
+			if w[1] == "alone":      return "I am alone."
+			if w[1] == "self":       return "I am being myself."
+			if w[1] == "right":      return "I am right."
+			if w[1] == "wrong":      return "I am wrong."
+			if w[1] == "safe":       return "I am safe."
+		if n >= 3:
+			if w[1] in ACTION_VERBS:
+				obj = " ".join(words[2:]).lower()
+				return f"I {w[1]} {obj}."
+			if w[1] == "name" and n == 3:
+				return f"My name is {words[2]}."
+		return "I " + tail() + "."
+
+	if w[0] in ("you", "your"):
+		if n == 2:
+			if w[1] == "name":       return "What is your name?"
+			if w[1] == "home":       return "Are you going home?"
+			if w[1] == "work":       return "Are you at work?"
+			if w[1] in STATE_VERBS:  return f"Are you {w[1]}?"
+			if w[1] in ACTION_VERBS: return f"Do you want to {w[1]}?"
+			if w[1] == "welcome":    return "You are welcome!"
+			if w[1] == "safe":       return "You are safe."
+			if w[1] == "right":      return "You are right!"
+			if w[1] == "best":       return "You are the best!"
+		if n >= 3 and w[1] in ACTION_VERBS:
+			obj = " ".join(words[2:]).lower()
+			return f"Do you {w[1]} {obj}?"
+		return "You " + tail() + "."
+
+	if w[0] == "we":
+		if n == 2:
+			if w[1] in ACTION_VERBS: return f"Let's {w[1]}!"
+			if w[1] in STATE_VERBS:  return f"We are {w[1]}."
+			if w[1] == "go":         return "Let's go!"
+			if w[1] == "eat":        return "Let's eat!"
+			if w[1] == "talk":       return "Let's talk."
+			if w[1] == "stay":       return "Let's stay."
+			if w[1] == "work":       return "Let's get to work!"
+		if n >= 3 and w[1] in ACTION_VERBS:
+			obj = " ".join(words[2:]).lower()
+			return f"Let's {w[1]} {obj}!"
+		return "We " + tail() + "."
+
+	if w[0] == "they":
+		if n == 2:
+			if w[1] in STATE_VERBS:  return f"They are {w[1]}."
+			if w[1] in ACTION_VERBS: return f"They want to {w[1]}."
+		return "They " + tail() + "."
+
+	if w[0] in ("her", "his"):
+		subj = "She" if w[0] == "her" else "He"
+		if n == 2 and w[1] in STATE_VERBS:
+			return f"{subj} is {w[1]}."
+		if n == 2 and w[1] in ACTION_VERBS:
+			return f"{subj} wants to {w[1]}."
+		return subj + " " + tail() + "."
+
+	# ── ACTION VERB AS FIRST WORD (imperative / statement) ───────────────────
+	if w[0] in ACTION_VERBS:
+		verb = w[0]
+		if n == 1:
+			return f"Let's {verb}!"
+		obj = tail()
+		if w[0] == "help":
+			if "me" in w[1:]:   return "Please help me."
+			if "you" in w[1:]:  return "I can help you."
+			return f"Please help {obj}."
+		if w[0] == "go":
+			if "home" in w[1:]:     return "Let's go home!"
+			if "college" in w[1:]:  return "Let's go to college."
+			if "work" in w[1:]:     return "Let's go to work."
+			if "out" in w[1:]:      return "Let's go out!"
+			return f"Let's go {obj}!"
+		if w[0] == "come":
+			if "here" in w[1:]:  return "Please come here."
+			if "home" in w[1:]:  return "Please come home."
+			return f"Please come {obj}."
+		if w[0] == "learn":
+			if "sign" in w[1:] or "language" in w[1:]: return "I want to learn sign language."
+			return f"I want to learn {obj}."
+		if w[0] == "study":
+			if "college" in w[1:]: return "I study at college."
+			return f"I need to study {obj}."
+		if w[0] == "talk":
+			if "me" in w[1:]:   return "Please talk to me."
+			if "you" in w[1:]:  return "Let's talk."
+			return f"Let's talk about {obj}."
+		if w[0] == "walk":
+			if "home" in w[1:]: return "I am walking home."
+			if "out" in w[1:]:  return "Let's walk outside."
+			return f"Let's walk {obj}."
+		if w[0] == "wash":
+			if "hand" in w[1:] or "hands" in w[1:]: return "Please wash your hands."
+			return f"Please wash {obj}."
+		if w[0] == "eat":
+			return f"Let's eat {obj}!"
+		if w[0] == "finish":
+			return f"I have finished {obj}."
+		if w[0] == "stay":
+			if "home" in w[1:]:  return "Please stay home."
+			if "safe" in w[1:]:  return "Please stay safe!"
+			if "here" in w[1:]:  return "Please stay here."
+			return f"Please stay {obj}."
+		if w[0] == "keep":
+			if "safe" in w[1:]:  return "Please keep it safe."
+			if "go" in w[1:]:    return "Keep going!"
+			return f"Please keep {obj}."
+		if w[0] == "sign":
+			if "language" in w[1:]: return "I love sign language!"
+			return f"Please sign {obj}."
+		if w[0] == "sing":
+			return f"Let's sing {obj}!"
+		if w[0] == "see":
+			if "you" in w[1:]:  return "Nice to see you!"
+			return f"I can see {obj}."
+		if w[0] == "ask":
+			if "me" in w[1:]:   return "You can ask me anything."
+			return f"Let me ask about {obj}."
+		return f"I want to {verb} {obj}."
+
+	# ── STATE / ADJECTIVE FIRST WORD ─────────────────────────────────────────
+	if w[0] in STATE_VERBS:
+		adj = w[0]
+		if n == 2:
+			if w[1] in ("me", "my", "i"):   return f"I am {adj}."
+			if w[1] in ("you", "your"):     return f"Are you {adj}?"
+			if w[1] == "we":                return f"We are {adj}."
+			if w[1] == "they":              return f"They are {adj}."
+			if w[1] == "world":             return f"The world is {adj}."
+		return f"That is {adj}!"
+
+	# ── MISC COMBINATIONS ────────────────────────────────────────────────────
+	if w[0] == "time":
+		if "go" in w[1:]:     return "It's time to go!"
+		if "eat" in w[1:]:    return "It's time to eat!"
+		if "work" in w[1:]:   return "It's time to work!"
+		if "study" in w[1:]:  return "It's time to study!"
+		if "sleep" in w[1:]:  return "It's time to sleep!"
+		return "What time is it?"
+
+	if w[0] == "day":
+		if "good" in w[1:]:   return "Have a good day!"
+		if "great" in w[1:]:  return "Have a great day!"
+		if "best" in w[1:]:   return "Have the best day!"
+		return "Good day!"
+
+	if w[0] == "now":
+		if n > 1:
+			return "Right now, " + tail() + "."
+		return "Do it right now!"
+
+	if w[0] == "again":
+		if n > 1:
+			return "Please do " + tail() + " again."
+		return "Please do it again."
+
+	if w[0] == "more":
+		if n > 1:
+			return "I want more " + tail() + "."
+		return "I want more."
+
+	if w[0] == "next":
+		if n > 1:
+			return "Next, " + tail() + "."
+		return "What is next?"
+
+	if w[0] == "also":
+		if n > 1:
+			return "Also, " + tail() + "."
+		return "Also, I agree."
+
+	if w[0] == "after":
+		if n > 1:
+			return "After " + tail() + "."
+		return "After that."
+
+	if w[0] == "before":
+		if n > 1:
+			return "Before " + tail() + "."
+		return "Do it before it's too late."
+
+	if w[0] == "will":
+		if "you" in w[1:]:   return "Will you " + " ".join(w[2:]) + "?" if n > 2 else "Will you do it?"
+		if "me" in w[1:]:    return "I will " + " ".join(w[2:]) + "." if n > 2 else "I will do it."
+		if "we" in w[1:]:    return "We will " + " ".join(w[2:]) + "." if n > 2 else "We will do it."
+		return "It will " + tail() + "."
+
+	if w[0] == "can":
+		if "you" in w[1:]:   return "Can you " + " ".join(w[2:]) + "?" if n > 2 else "Can you help me?"
+		if "me" in w[1:] or "i" in w[1:]: return "I can " + " ".join(w[2:]) + "." if n > 2 else "I can do it!"
+		if "we" in w[1:]:    return "We can " + " ".join(w[2:]) + "." if n > 2 else "We can do it!"
+		return "I can " + tail() + "."
+
+	if w[0] in ("this", "that", "those"):
+		pronoun = words[0]
+		if n == 2 and w[1] in STATE_VERBS: return f"{pronoun} is {w[1]}!"
+		if n > 1:                           return f"{pronoun} is " + tail() + "."
+		return f"What is {pronoun.lower()}?"
+
+	if w[0] == "all":
+		if n > 1: return "All of us " + tail() + "."
+		return "That's all!"
+
+	if w[0] == "world":
+		if "beautiful" in w[1:]: return "The world is beautiful!"
+		if "our" in w[1:]:       return "The world is ours."
+		if "whole" in w[1:]:     return "The whole world is watching."
+		return "The world " + tail() + "."
+
+	if w[0] == "work":
+		if "home" in w[1:]:   return "I work from home."
+		if "college" in w[1:]:return "I work at the college."
+		if "computer" in w[1:]:return "I work on the computer."
+		if "with" in w[1:]:   return "I work with " + " ".join(w[2:]) + "."
+		return "I am working on " + tail() + "."
+
+	if w[0] == "language":
+		if "sign" in w[1:]:   return "Sign language is amazing!"
+		return "Language is the key to communication."
+
+	if w[0] == "sign":
+		if "language" in w[1:]: return "Sign language is beautiful!"
+		return "What does this sign mean?"
+
+	if w[0] == "god":
+		if "thank" in w[1:] or "thank you" in w[1:]: return "Thank God!"
+		if "good" in w[1:]:   return "God is good!"
+		return "God bless you!"
+
+	if w[0] == "sound":
+		if "good" in w[1:]:   return "That sounds good!"
+		if "great" in w[1:]:  return "That sounds great!"
+		return "I can hear the sound of " + tail() + "."
+
+	if w[0] == "words":
+		return "Choose your words carefully."
+
+	if w[0] == "engineer":
+		if "me" in w[1:] or "my" in w[1:]: return "I am an engineer."
+		return "The engineer " + tail() + "."
+
+	if w[0] == "television":
+		if "watch" in w[1:] or "see" in w[1:]: return "I am watching television."
+		return "Turn on the television."
+
+	if w[0] == "computer":
+		if "work" in w[1:]:  return "I work on the computer."
+		if "use" in w[1:]:   return "I use the computer."
+		return "I am on the computer."
+
+	if w[0] == "college":
+		if "go" in w[1:]:    return "Let's go to college."
+		if "study" in w[1:]: return "I study at college."
+		if "learn" in w[1:]: return "I learn at college."
+		return "I go to college."
+
+	if w[0] == "home":
+		if "go" in w[1:]:    return "Let's go home!"
+		if "stay" in w[1:]:  return "Please stay home."
+		if "come" in w[1:]:  return "Please come home."
+		if "work" in w[1:]:  return "I work from home."
+		return "I am going home."
+
+	if w[0] == "name":
+		if "my" in w[1:] or "me" in w[1:]: return "What is my name?"
+		if "your" in w[1:] or "you" in w[1:]: return "What is your name?"
+		return "What is the name of " + tail() + "?"
+
+	# ── DEFAULT FALLBACK ─────────────────────────────────────────────────────
+	sentence = words[0].capitalize()
+	for i, word in enumerate(words[1:], 1):
+		prev = w[i - 1]
+		wl   = word.lower()
+		if prev in SUBJECT_MAP and wl in ACTION_VERBS:
+			verb = ACTION_VERBS[wl]
+			sentence += f" {verb}"
+		elif prev in SUBJECT_MAP and wl in STATE_VERBS:
+			sentence += f" am {word.lower()}"
+		else:
+			sentence += f" {word.lower()}"
+	if not sentence.endswith((".", "!", "?")):
+		if w[0] in QUESTION_STARTS or w[-1] in QUESTION_STARTS:
+			sentence += "?"
+		else:
+			sentence += "."
+	return sentence
 
 
 def _ollama_sentence_is_valid(sentence, words):
